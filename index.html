@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+    </script>
+    <script async src="https://www.googletagmanager.com/gtm.js?id=GTM-PD2L4MSZ"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no" />
+    <meta name="theme-color" content="#064f78" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="가족화투" />
+    <meta name="robots" content="noindex,nofollow,noarchive" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/startup.css" />
+    <title>강구철화투</title>
+  </head>
+  <body class="startup-body">
+    <div id="root">
+      <main class="loading-page" aria-live="polite">
+        <section class="loading-panel">
+          <div class="loading-brand" aria-label="가족화투"><span>가족</span><b>화투</b></div>
+          <div class="loading-cards" aria-hidden="true"><span>花</span><span>光</span></div>
+          <p>가족화투를 불러오고 있습니다</p>
+          <p class="loading-visits" id="loading-visits"></p>
+          <div class="loading-progress" aria-hidden="true"><span></span></div>
+        </section>
+      </main>
+    </div>
+    <script>
+      (function () {
+        var key = 'hwatu-visitor-id';
+        var pattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+        var id = '';
+        try { id = localStorage.getItem(key) || ''; } catch (error) { id = ''; }
+        if (!pattern.test(id)) {
+          if (!window.crypto || !crypto.randomUUID) return;
+          id = crypto.randomUUID();
+          try { localStorage.setItem(key, id); } catch (error) {}
+        }
+        window.__hwatuVisitCount = fetch('/visits', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ id: id }),
+          cache: 'no-store'
+        }).then(function (response) {
+          return response.ok ? response.json() : null;
+        }).then(function (payload) {
+          var ordinal = payload && typeof payload.ordinal === 'number' ? payload.ordinal : payload && typeof payload.total === 'number' ? payload.total : null;
+          if (ordinal != null) {
+            window.__hwatuVisitOrdinal = ordinal;
+            if (payload && typeof payload.total === 'number') window.__hwatuVisitTotal = payload.total;
+          }
+          var label = document.getElementById('loading-visits');
+          if (label && ordinal != null) label.textContent = '당신은 ' + ordinal.toLocaleString('ko-KR') + '번째 접속자입니다';
+          return ordinal;
+        }).catch(function () { return null; });
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
