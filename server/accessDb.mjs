@@ -2,7 +2,7 @@ import mariadb from 'mariadb';
 import { seoulDayStart } from './accessTime.mjs';
 import { readBoardDbConfig } from './boardDb.mjs';
 
-import { IP_COUNT_WINDOW_MS, SESSION_GAP_MS, buildAccessReport, normalizeIp } from './accessStats.mjs';
+import { IP_COUNT_WINDOW_MS, SESSION_GAP_MS, buildAccessReport, normalizeIp, playList } from './accessStats.mjs';
 
 const CREATE_EVENTS = `CREATE TABLE IF NOT EXISTS visit_events (
   id BIGINT NOT NULL AUTO_INCREMENT,
@@ -131,12 +131,30 @@ export function createAccessRecorder(config = readBoardDbConfig()) {
         ips.push(ip === 'unknown' ? '알 수 없음' : ip);
       }
       ips.sort((left, right) => left.localeCompare(right));
+      const dayStart = seoulDayStart(now);
+      const todayRows = await query(
+        `SELECT visitor_id AS visitorId, ip, started_at AS startedAt, last_seen AS lastSeen
+         FROM visit_sessions
+         WHERE last_seen >= ?`,
+        [dayStart]
+      );
+      const day = playList(
+        (Array.isArray(todayRows) ? todayRows : []).map(row => ({
+          visitorId: String(row.visitorId),
+          ip: normalizeIp(row.ip),
+          startedAt: Number(row.startedAt),
+          lastSeen: Number(row.lastSeen)
+        })),
+        now,
+        Math.max(0, now - dayStart)
+      );
       const row = rows?.[0] ?? {};
       return {
         current: Number(row.current_users ?? 0),
         today: Number(row.today_users ?? 0),
         total: visitTotal(row.baseline, row.stored_events),
-        ips
+        ips,
+        day
       };
     },
     async note(event) {
