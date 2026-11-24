@@ -8,24 +8,23 @@ interface StartingPlayerChoiceProps {
   seed: number;
   disabled?: boolean;
   daytime?: boolean;
+  autoPick?: boolean;
   onSelect: (player: PlayerId) => void;
   onReveal?: (player: PlayerId) => void;
   onExit?: () => void;
 }
 
-export default function StartingPlayerChoice({ seed, disabled = false, daytime = new Date().getHours() >= 6 && new Date().getHours() < 18, onSelect, onReveal, onExit }: StartingPlayerChoiceProps) {
+export default function StartingPlayerChoice({ seed, disabled = false, daytime = new Date().getHours() >= 6 && new Date().getHours() < 18, autoPick = false, onSelect, onReveal, onExit }: StartingPlayerChoiceProps) {
   const cards = useMemo(() => createDealerSelectionCards(seed), [seed]);
   const [humanIndex, setHumanIndex] = useState<number | null>(null);
   const [computerIndex, setComputerIndex] = useState<number | null>(null);
   const timerRef = useRef<number | null>(null);
+  const pickedRef = useRef(false);
   const winner = humanIndex === null || computerIndex === null ? null : determineDealerWinner(cards[humanIndex], cards[computerIndex], daytime);
 
-  useEffect(() => () => {
-    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
-  }, []);
-
   const selectCard = (index: number) => {
-    if (disabled || humanIndex !== null) return;
+    if (disabled || pickedRef.current || humanIndex !== null) return;
+    pickedRef.current = true;
     const opponentIndex = chooseComputerDealerIndex(cards, index, seed);
     const result = determineDealerWinner(cards[index], cards[opponentIndex], daytime);
     setHumanIndex(index);
@@ -33,6 +32,21 @@ export default function StartingPlayerChoice({ seed, disabled = false, daytime =
     if (result) onReveal?.(result);
     if (result) timerRef.current = window.setTimeout(() => onSelect(result), 1800);
   };
+
+  useEffect(() => {
+    pickedRef.current = false;
+  }, [seed]);
+
+  useEffect(() => () => {
+    if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!autoPick || disabled || humanIndex !== null) return;
+    const index = Math.abs(Math.trunc(seed)) % cards.length;
+    const timer = window.setTimeout(() => selectCard(index), 700);
+    return () => window.clearTimeout(timer);
+  }, [autoPick, cards.length, disabled, humanIndex, seed]);
 
   const humanMonth = humanIndex === null ? null : getCard(cards[humanIndex])?.month;
   const computerMonth = computerIndex === null ? null : getCard(cards[computerIndex])?.month;
