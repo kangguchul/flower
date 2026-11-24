@@ -26,16 +26,16 @@ describe('컴퓨터 상대 이름', () => {
   it('같은 판에서는 항상 같은 이름을 사용한다', () => {
     const gameUuid = '44b5331b-f506-4a21-9f04-1666ab76387b';
     expect(opponentNameForGame(gameUuid)).toBe(opponentNameForGame(gameUuid));
-    expect(opponentNameForGame(gameUuid)).toMatch(/^[A-Za-z][A-Za-z0-9._]{12,20}[A-Za-z0-9]$/);
+    expect(opponentNameForGame(gameUuid)).toMatch(/^[A-Za-z0-9가-힣]{8,18}$/);
     expect(opponentNameForGame(gameUuid).startsWith('ID-')).toBe(false);
   });
 
   it('아이디 1000개를 만들고 여러 번 둔 뒤에는 다른 상대를 고른다', () => {
     expect(playerIds()).toHaveLength(PLAYER_ID_COUNT);
     expect(new Set(playerIds()).size).toBe(PLAYER_ID_COUNT);
-    expect(playerIdAt(0)).toBe('apple19_mapleOOO');
-    expect(playerIdAt(999)).toBe('zzharin14_latteoo');
-    expect(playerIds().every(id => /^[A-Za-z][A-Za-z0-9._]{12,20}[A-Za-z0-9]$/.test(id) && !id.startsWith('ID-') && (id.match(/[A-Za-z]+|\d+/g) ?? []).length >= 3 && !/^[A-Za-z]+[._][A-Za-z]+$/.test(id))).toBe(true);
+    expect(playerIdAt(0)).toBe('apple19하린OO');
+    expect(playerIdAt(999)).toBe('mint연우35oliv');
+    expect(playerIds().every(id => /^[A-Za-z0-9가-힣]{8,18}$/.test(id) && /[가-힣]{2}/.test(id) && /\d/.test(id) && /[A-Za-z]{3}/.test(id) && !/[._]/.test(id) && !id.startsWith('ID-'))).toBe(true);
     const names = new Set(Array.from({ length: 300 }, (_, index) => opponentNameForGame(`44b5331b-f506-4a21-9f04-${String(index).padStart(12, '0')}`)));
     expect(names.size).toBeGreaterThan(6);
     const gameUuid = '44b5331b-f506-4a21-9f04-1666ab76387b';
@@ -124,7 +124,7 @@ describe('컴퓨터 상대 이름', () => {
   it('같은 아이디는 항상 같은 음성을 쓰고 세 글자 이름에 묶이지 않는다', () => {
     const first = opponentProfileForSession('session-0', 0);
     expect(opponentProfileForSession('session-0', 0)).toEqual(first);
-    expect(first.name).toMatch(/^[A-Za-z][A-Za-z0-9._]{12,20}[A-Za-z0-9]$/);
+    expect(first.name).toMatch(/^[A-Za-z0-9가-힣]{8,18}$/);
     expect(opponentProfileForSession('session-0', 1).name).not.toBe(first.name);
   });
 
@@ -134,7 +134,7 @@ describe('컴퓨터 상대 이름', () => {
       const players = gostopComputerPlayersForSession(`gostop-session-${index}`);
       expect(players.computerA.voiceActor).not.toBe(players.computerB.voiceActor);
       expect(players.computerA.name).not.toBe(players.computerB.name);
-      expect(players.computerA.name).toMatch(/^[A-Za-z][A-Za-z0-9._]{12,20}[A-Za-z0-9]$/);
+      expect(players.computerA.name).toMatch(/^[A-Za-z0-9가-힣]{8,18}$/);
       selectedNames.add(players.computerA.name);
       selectedNames.add(players.computerB.name);
       return players;

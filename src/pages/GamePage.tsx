@@ -1338,7 +1338,7 @@ export default function GamePage() {
       <p>한 장을 뒤집으면 선공과 후공이 정해집니다.</p>
       <div className="dealer-selection-layout">
         <div className="dealer-point-value"><PointValueSelector value={pointValue} disabled={busy} onChange={value => void selectPointValue(value)} /></div>
-        <StartingPlayerChoice seed={game.randomSeed} disabled={busy} onSelect={player => void selectStartingPlayer(player)} onReveal={player => playDealerResultSound(player === 'computer' ? opponentVoiceActor : 'player')} onExit={leaveNow} />
+        <StartingPlayerChoice seed={game.randomSeed} disabled={busy} autoPick={autoPlay} onSelect={player => void selectStartingPlayer(player)} onReveal={player => playDealerResultSound(player === 'computer' ? opponentVoiceActor : 'player')} onExit={leaveNow} />
         <div className="dealer-difficulty"><DifficultySelector value={computerDifficulty} onChange={difficulty => void selectDifficulty(difficulty)} /></div>
       </div>
     </section></div> : !started && <div className="start-overlay"><div><span className="start-logo">가족화투</span><>

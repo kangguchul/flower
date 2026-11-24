@@ -355,19 +355,6 @@ button.hwatu-card:disabled { filter: saturate(.82); }
 .bomb-status-icon::before, .saved-bomb-icon::before { content: ""; position: absolute; top: -16%; right: 3%; width: 36%; height: 27%; border-radius: 3px 3px 0 0; background: #1b1e20; transform: rotate(35deg); }
 .bomb-status-icon::after, .saved-bomb-icon::after { content: ""; position: absolute; top: -29%; right: -12%; width: 35%; height: 5%; border-radius: 999px; background: #f2b531; transform: rotate(-24deg); }
 .opponent-score { top: 12%; right: 1.5%; }
-
-@media (min-width: 721px) {
-  .game-field { --opponent-hand-block: calc(var(--card-w) * 168.2 / 103.2 + 22px); }
-  .computer-hand { top: 6px; right: auto; left: 8px; display: grid; grid-template-columns: repeat(10, minmax(0, 1fr)); grid-template-rows: auto; grid-auto-flow: row; justify-items: center; align-items: end; gap: clamp(6px, .7vw, 12px); width: calc(100% - clamp(108px, 10vw, 156px)); min-width: 0; height: auto; padding: 4px 8px 6px; }
-  .computer-hand .card-back { width: 100%; max-width: var(--card-w); height: auto; aspect-ratio: 103.2 / 168.2; border-width: 2px; border-radius: 5px; }
-  .computer-hand .card-back span { display: grid; width: 46%; height: 62%; font-size: clamp(1rem, 1.6vw, 1.7rem); }
-  .computer-hand .hand-count { min-width: 28px; height: 28px; font-size: .85rem; }
-  .floor-zone { top: calc(var(--opponent-hand-block) + 12px); transform: none; }
-  .opponent-rack { top: calc(var(--opponent-hand-block) + 4px); }
-  .opponent-score { top: 8px; }
-  .game-stake { top: calc(var(--opponent-hand-block) + 100px); }
-  .ai-thinking-indicator.board-ai-thinking { top: calc(var(--opponent-hand-block) + 96px); }
-}
 .human-score { right: 1.5%; bottom: calc(var(--bottom-dock-height) + 16px); }
 .human-score strong { min-width: clamp(88px, 8.8vw, 132px); border-color: #91c52b; }
 
@@ -1021,7 +1008,7 @@ button.hwatu-card:disabled { filter: saturate(.82); }
   .human-play-dock { grid-template-columns: minmax(0, 1fr) clamp(160px, 7vw, 240px); }
   .small-card, .captured-card-slot { width: clamp(160px, 4.2vw, 240px); }
   .draw-pile .deck-back { width: clamp(200px, 5.2vw, 280px); }
-  .floor-zone { top: calc(var(--opponent-hand-block) + 12px); transform: none; }
+  .computer-hand { grid-template-rows: repeat(2, clamp(40px, 2.4vh, 58px)); grid-auto-columns: clamp(32px, 1vw, 46px); padding-right: 48px; }
   .game-side-rail > .human-player .player-portrait,
   .player-portrait { width: 128px; height: 128px; }
 }

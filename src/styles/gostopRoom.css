@@ -54,10 +54,6 @@
 .gostop-opponent-captured .captured-card-slot:last-child .hwatu-card { animation: gostop-capture-in .38s cubic-bezier(.16,1.28,.34,1); }
 .gostop-hidden-hand { display: flex; padding-top: 3px; }
 .gostop-card-back { display: grid; place-items: center; width: clamp(28px, 3.4vw, 46px); aspect-ratio: 38 / 53; margin-left: clamp(-14px, -1vw, -7px); border: 2px solid #f0daa7; border-radius: 4px; background: repeating-linear-gradient(45deg, #dc1c27 0 5px, #9e1018 5px 10px); box-shadow: 0 3px 6px rgba(0,0,0,.35); }
-@media (min-width: 721px) {
-  .gostop-card-back { width: clamp(58px, 5.8vw, 90px); aspect-ratio: 103.2 / 168.2; margin-left: calc(clamp(58px, 5.8vw, 90px) * -.62); }
-  .gostop-hidden-hand { max-width: none; }
-}
 .gostop-card-back:first-child { margin-left: 0; }
 .gostop-card-back i { display: grid; place-items: center; width: 55%; height: 66%; border: 1px solid rgba(255,244,170,.72); color: #ffe36b; font-family: Georgia, serif; font-style: normal; }
 .gostop-card-flight-face { display: none; }
