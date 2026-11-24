@@ -1,3 +1,4 @@
+import { randomOpponentBalance } from '../../lib/opponentBalance';
 import type { GostopPlayerId } from './gameState';
 import { GOSTOP_PLAYERS, type GostopPointDeltas } from './settlement';
 
@@ -13,7 +14,8 @@ export interface GostopBalances {
 export function settleGostopBalances(
   balances: GostopBalances,
   winner: GostopPlayerId,
-  amountPerOpponent: number
+  amountPerOpponent: number,
+  random: () => number = Math.random
 ): GostopBalances {
   const next = { ...balances };
   const requested = Math.max(0, Math.trunc(amountPerOpponent));
@@ -23,15 +25,16 @@ export function settleGostopBalances(
     next[loser] -= payment;
     next[winner] += payment;
   }
-  if (next.computerA === 0) next.computerA = DEFAULT_GOSTOP_COMPUTER_BALANCE;
-  if (next.computerB === 0) next.computerB = DEFAULT_GOSTOP_COMPUTER_BALANCE;
+  if (next.computerA === 0) next.computerA = randomOpponentBalance(random);
+  if (next.computerB === 0) next.computerB = randomOpponentBalance(random);
   return next;
 }
 
 export function settleGostopPointDeltas(
   balances: GostopBalances,
   pointDeltas: GostopPointDeltas,
-  pointValue: number
+  pointValue: number,
+  random: () => number = Math.random
 ): GostopBalances {
   const next = { ...balances };
   const unit = Math.max(0, Math.trunc(pointValue));
@@ -56,7 +59,7 @@ export function settleGostopPointDeltas(
       if (debt <= 0 || next[debtor] <= 0) break;
     }
   }
-  if (next.computerA === 0) next.computerA = DEFAULT_GOSTOP_COMPUTER_BALANCE;
-  if (next.computerB === 0) next.computerB = DEFAULT_GOSTOP_COMPUTER_BALANCE;
+  if (next.computerA === 0) next.computerA = randomOpponentBalance(random);
+  if (next.computerB === 0) next.computerB = randomOpponentBalance(random);
   return next;
 }

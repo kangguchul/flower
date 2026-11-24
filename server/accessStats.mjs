@@ -72,6 +72,24 @@ export function peopleStats(sessions) {
     .sort((left, right) => right.visits - left.visits || left.visitorId.localeCompare(right.visitorId));
 }
 
+export const IP_COUNT_WINDOW_MS = 8 * 24 * 60 * 60 * 1000;
+
+export function playList(sessions, now = Date.now(), windowMs = IP_COUNT_WINDOW_MS) {
+  const from = now - windowMs;
+  const visitors = new Map();
+  for (const session of sessions) {
+    if (session.lastSeen < from) continue;
+    const ip = session.ip && session.ip !== 'unknown' ? session.ip : '알 수 없음';
+    const ids = visitors.get(ip) ?? new Set();
+    ids.add(session.visitorId);
+    visitors.set(ip, ids);
+  }
+  return [...visitors.entries()]
+    .map(([ip, ids]) => ({ ip, count: ids.size }))
+    .sort((left, right) => right.count - left.count || left.ip.localeCompare(right.ip))
+    .map(row => `${row.count}명:${row.ip}`);
+}
+
 export function buildAccessReport(sessions, samples = [], now = Date.now()) {
   const from = now - 24 * 60 * 60 * 1000;
   const recent = sessions.filter(session => session.lastSeen >= from);
@@ -84,7 +102,8 @@ export function buildAccessReport(sessions, samples = [], now = Date.now()) {
     averageMs: averageDurationMs(recent, now),
     maxConcurrent: Math.max(maxConcurrent(recent), samplePeak),
     series,
-    people: peopleStats(recent)
+    people: peopleStats(recent),
+    plays: playList(sessions, now)
   };
 }
 

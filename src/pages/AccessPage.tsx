@@ -19,9 +19,18 @@ interface Person { visitorId: string; visits: number; ips: string[]; averageMs: 
 interface Report {
   averageMs: number;
   maxConcurrent: number;
+  current?: number;
+  today?: number;
+  total?: number;
   series: Point[];
   people: Person[];
+  plays?: string[];
   source?: string;
+}
+
+function addressList(ips: string[]) {
+  const visible = ips.filter(ip => ip && ip !== 'unknown');
+  return visible.join(', ') || '알 수 없음';
 }
 
 function AccessChart({ points }: { points: Point[] }) {
@@ -43,16 +52,31 @@ function AccessChart({ points }: { points: Point[] }) {
   </svg>;
 }
 
+const REFRESH_MS = 5 * 60 * 1000;
+
 export default function AccessPage() {
   const [report, setReport] = useState<Report | null>(null);
+  const [loadedAt, setLoadedAt] = useState<number | null>(null);
   const [error, setError] = useState('');
   useEffect(() => {
     let cancelled = false;
-    fetch('/visits/report', { cache: 'no-store' })
-      .then(response => response.ok ? response.json() : Promise.reject(new Error('load')))
-      .then(payload => { if (!cancelled) setReport(payload); })
-      .catch(() => { if (!cancelled) setError('접속 그래프를 불러오지 못했습니다.'); });
-    return () => { cancelled = true; };
+    const load = () => {
+      fetch('/visits/report', { cache: 'no-store' })
+        .then(response => response.ok ? response.json() : Promise.reject(new Error('load')))
+        .then(payload => {
+          if (cancelled) return;
+          setReport(payload);
+          setLoadedAt(Date.now());
+          setError('');
+        })
+        .catch(() => { if (!cancelled) setError('접속 그래프를 불러오지 못했습니다.'); });
+    };
+    load();
+    const timer = window.setInterval(load, REFRESH_MS);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
   }, []);
   return <PageLayout pageClassName="access-site-page">
     <div className="page-heading">
@@ -61,15 +85,23 @@ export default function AccessPage() {
     </div>
     {error && <p className="form-error" role="alert">{error}</p>}
     {report && <>
-      {report.source === 'memory' && <p className="access-note">데이터베이스에 저장하지 못해, 이번 서버 실행 동안의 기록만 보여 줍니다.</p>}
       <section className="access-summary" aria-label="접속 요약">
+        <article><span>현재 접속</span><strong>{(report.current ?? 0).toLocaleString('ko-KR')}명</strong></article>
+        <article><span>오늘 접속</span><strong>{(report.today ?? 0).toLocaleString('ko-KR')}명</strong></article>
+        <article><span>누적 접속</span><strong>{(report.total ?? 0).toLocaleString('ko-KR')}명</strong></article>
         <article><span>동시 최대 접속자 수</span><strong>{report.maxConcurrent.toLocaleString('ko-KR')}명</strong></article>
         <article><span>접속 평균 시간</span><strong>{formatDuration(report.averageMs)}</strong></article>
-        <article><span>최근 동시 접속</span><strong>{(report.series.at(-1)?.current ?? 0).toLocaleString('ko-KR')}명</strong></article>
       </section>
       <section className="panel-card access-panel" aria-label="동시 접속 그래프">
         <h2>동시 접속</h2>
         {report.series.length === 0 ? <p className="board-empty">아직 그릴 접속 기록이 없습니다.</p> : <AccessChart points={report.series} />}
+      </section>
+      <section className="panel-card access-panel" aria-label="최근 8일 아이피별 접속자 수">
+        <h2>최근 8일 접속자</h2>
+        <p className="access-note">아이피별 접속자 수입니다. 5분마다 갱신합니다.{loadedAt ? ` 마지막 표시 ${clock(loadedAt)}.` : ''}</p>
+        {(report.plays ?? []).length === 0 ? <p className="board-empty">아직 표시할 접속자가 없습니다.</p> : <ul className="access-play-list">
+          {report.plays?.map((line, index) => <li key={`${line}:${index}`}>{line}</li>)}
+        </ul>}
       </section>
       <section className="panel-card access-panel" aria-label="개인별 접속">
         <h2>개인별 접속</h2>
@@ -81,7 +113,7 @@ export default function AccessPage() {
               {report.people.map(person => <tr key={person.visitorId}>
                 <td>{person.visits.toLocaleString('ko-KR')}</td>
                 <td>{formatDuration(person.averageMs)}</td>
-                <td>{person.ips.join(', ') || '알 수 없음'}</td>
+                <td>{addressList(person.ips)}</td>
                 <td>{person.visitorId}</td>
               </tr>)}
             </tbody>

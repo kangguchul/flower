@@ -7,7 +7,6 @@ import { attachMultiplayer } from './server/multiplayer.mjs';
 import { handleBoardRequest } from './server/board.mjs';
 import { createLiveBoardStore } from './server/boardDb.mjs';
 import { createAccessRecorder } from './server/accessDb.mjs';
-import { buildAccessReport } from './server/accessStats.mjs';
 import { createVisitStore, handleVisitPresence, handleVisitRequest, handleVisitStats } from './server/visits.mjs';
 
 const accessSessions = [];
@@ -16,7 +15,9 @@ const visitStore = createVisitStore(path.resolve('data/visits.json'), path.resol
   sessions: accessSessions,
   onVisit: event => Promise.all([accessRecorder.record(event.now), accessRecorder.note(event)]),
   onSession: event => accessRecorder.note(event),
-  loadToday: now => accessRecorder.countToday(now)
+  loadToday: now => accessRecorder.countToday(now),
+  seedTotal: total => accessRecorder.ensureTotal(total),
+  summary: now => accessRecorder.summary(now)
 });
 
 function sendJson(response, status, body) {
@@ -58,12 +59,13 @@ function multiplayerPlugin() {
           return;
         }
         if (pathname === '/report' && request.method === 'GET') {
-          const now = Date.now();
-          const memory = { ...buildAccessReport(visitStore.sessions(), [], now), source: 'memory' };
-          accessRecorder.report(now).then(report => {
-            const hasDatabase = report.people.length > 0 || report.series.some(point => point.current > 0);
-            sendJson(response, 200, hasDatabase ? report : memory);
-          }).catch(() => sendJson(response, 200, memory));
+          Promise.resolve(visitStore.stats()).catch(() => null).then(() => accessRecorder.report(Date.now())).then(report => {
+            sendJson(response, 200, report);
+          }).catch(() => {
+            if (response.writableEnded) return;
+            response.statusCode = 503;
+            response.end();
+          });
           return;
         }
         if (pathname === '/presence') {

@@ -1,7 +1,7 @@
-import { useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { randomUuid } from '../engine/random';
 import type { VoiceActor } from './audio';
-import { MATGO_OPPONENTS } from './computerPlayers';
+import { assignPlayerIndexes, hashText, playerIdProfile } from './playerIds';
 const MATGO_OPPONENT_SESSION_KEY = 'hwatu.matgo.opponent-session';
 
 export interface MatgoOpponentProfile {
@@ -9,17 +9,13 @@ export interface MatgoOpponentProfile {
   voiceActor: VoiceActor;
 }
 
-export function opponentProfileForSession(sessionId: string): MatgoOpponentProfile {
-  let hash = 0x811c9dc5;
-  for (const character of sessionId) {
-    hash ^= character.charCodeAt(0);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return MATGO_OPPONENTS[(hash >>> 0) % MATGO_OPPONENTS.length];
+export function opponentProfileForSession(sessionId: string, roundsPlayed = 0): MatgoOpponentProfile {
+  const profile = playerIdProfile(hashText(sessionId) + roundsPlayed);
+  return { name: profile.name, voiceActor: profile.voiceActor };
 }
 
-export function opponentNameForGame(gameUuid: string): string {
-  return opponentProfileForSession(gameUuid).name;
+export function opponentNameForGame(gameUuid: string, roundsPlayed = 0): string {
+  return opponentProfileForSession(gameUuid, roundsPlayed).name;
 }
 
 export function getMatgoOpponentSessionId(): string {
@@ -40,8 +36,15 @@ export function resetMatgoOpponentSession() {
   catch { /* 저장소를 사용할 수 없으면 현재 화면 생명주기만 사용 */ }
 }
 
-export function useMatgoOpponent(): MatgoOpponentProfile {
-  const opponentRef = useRef<MatgoOpponentProfile | null>(null);
-  opponentRef.current ??= opponentProfileForSession(getMatgoOpponentSessionId());
-  return opponentRef.current;
+export function useMatgoOpponent(gameId?: string): MatgoOpponentProfile {
+  const sessionRef = useRef<string | null>(null);
+  sessionRef.current ??= getMatgoOpponentSessionId();
+  const [profile, setProfile] = useState<MatgoOpponentProfile>(() => opponentProfileForSession(sessionRef.current!, 0));
+  useEffect(() => {
+    if (!gameId) return;
+    const [index] = assignPlayerIndexes(gameId, 1, sessionRef.current!);
+    const next = playerIdProfile(index);
+    setProfile({ name: next.name, voiceActor: next.voiceActor });
+  }, [gameId]);
+  return profile;
 }

@@ -34,7 +34,10 @@ describe('게임 종료 선택창', () => {
     game.phase = 'round-ended';
     game.roundResult = 'nagari';
     const html = renderToStaticMarkup(<RoundResultOverlay game={game} onContinue={vi.fn()} onExit={vi.fn()} />);
-    expect(html).toContain('2초 후 다음 판이 시작됩니다');
+    expect(html).toContain('다음 판을 시작할까요?');
+    expect(html).not.toContain('2초 후 다음 판이 시작됩니다');
+    const autoHtml = renderToStaticMarkup(<RoundResultOverlay game={game} autoPlay onContinue={vi.fn()} onExit={vi.fn()} />);
+    expect(autoHtml).toContain('2초 후 다음 판이 시작됩니다');
     expect(html).toContain('class="result-scroll-content"');
     expect(html).toContain('class="result-footer"');
     expect(html).toContain('확인 · 바로 시작');

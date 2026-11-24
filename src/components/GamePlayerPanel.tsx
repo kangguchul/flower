@@ -12,9 +12,10 @@ interface Props {
   profileImageUrl?: string | null;
   onProfileImageChange?: (file: File) => Promise<void>;
   profileImageUploading?: boolean;
+  onNameClick?: () => void;
 }
 
-export default function GamePlayerPanel({ name, balance, human = false, active = false, first = false, thinking = null, profileImageUrl, onProfileImageChange, profileImageUploading = false }: Props) {
+export default function GamePlayerPanel({ name, balance, human = false, active = false, first = false, thinking = null, profileImageUrl, onProfileImageChange, profileImageUploading = false, onNameClick }: Props) {
   const safeBalance = Number.isFinite(balance) ? balance : 0;
   const balanceText = `${new Intl.NumberFormat('ko-KR').format(safeBalance)}냥`;
   const balanceUnits = [...balanceText].reduce((total, character) => total + (/\d/.test(character) ? .62 : character === ',' ? .33 : character === '-' ? .5 : 1), 0);
@@ -23,7 +24,9 @@ export default function GamePlayerPanel({ name, balance, human = false, active =
     ? <img src={profileImageUrl} alt="" />
     : <span aria-hidden="true">{human ? '🙂' : '🐶'}</span>;
   return <section className={`game-player-card${human ? ' human-player' : ''}${active ? ' active-player' : ''}${thinking ? ' thinking-player' : ''}`}>
-    <div className="player-name" title={name}><span>{name}</span>{first && <b className="first-player-badge">선</b>}</div>
+    <div className="player-name" title={name}>{human && onNameClick
+      ? <button type="button" className="player-name-button" aria-label={`${name} 이름 수정`} onClick={onNameClick}><span>{name}</span></button>
+      : <span>{name}</span>}{first && <b className="first-player-badge">선</b>}</div>
     <div className="player-balance-frame"><div className="player-balance" style={balanceStyle}>{balanceText}</div></div>
     {thinking && <AiThinkingIndicator plan={thinking} />}
     {human && onProfileImageChange ? <>

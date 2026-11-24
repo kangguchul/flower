@@ -6,6 +6,7 @@ import BombDecisionPanel from '../components/BombDecisionPanel';
 import CapturedCardRack from '../components/CapturedCardRack';
 import DifficultySelector from '../components/DifficultySelector';
 import ExitChoiceDialog from '../components/ExitChoiceDialog';
+import NameEditDialog from '../components/NameEditDialog';
 import GameDeclarationOverlay, { type DeclarationEffect } from '../components/GameDeclarationOverlay';
 import GoStopDecisionPanel from '../components/GoStopDecisionPanel';
 import GookjinDecisionPanel from '../components/GookjinDecisionPanel';
@@ -35,21 +36,24 @@ import {
   type GostopPlayerId, type GostopRoomState
 } from '../games/gostop/gameState';
 import { dashboard, refillBalance, settleGostopRound } from '../lib/api';
-import { createSoloProfile } from '../lib/soloPlay';
+import { createSoloProfile, SOLO_USER_ID } from '../lib/soloPlay';
 import {
-  applyAudioSettings, pauseGameAudio, playAutoPlaySound, playBonusPeeSound, playCancelSound, playCaptureSound, playCardSound,
+  applyAudioSettings, playAutoPlaySound, playBonusPeeSound, playCancelSound, playCaptureSound, playCardSound,
   playDealSound, playDecisionSound, playFlipSound, playGoSound, playGookjinSound, playLoseSound, playMoneySound,
   playNagariSound, playPpeokSound, playScoreSound, playSelectSound, playSpecialMoveSound, playStartSound, playStopSound, playBombSound, playShakeSound,
   playWinSound, unlockAudio, type VoiceActor
 } from '../lib/audio';
 import { loadAudioSettings, saveAudioSettings, type AudioSettings } from '../lib/audioSettings';
 import { useVolumeWheel } from '../lib/useVolumeWheel';
-import { useGostopComputerPlayers, voiceActorDisplayName, type GostopComputerPlayers } from '../lib/computerPlayers';
+import { assignGostopPlayers, getGostopOpponentSessionId, useGostopComputerPlayers, type GostopComputerPlayers } from '../lib/computerPlayers';
+import { migrateOpponentEntry, opponentEntryBalance, randomOpponentBalance } from '../lib/opponentBalance';
+import { claimFreshReload, OPPONENT_WAIT_MS, releaseFreshReload } from '../lib/pageLoad';
+import { finishPlayerSeat, seatNextUser } from '../lib/playerIds';
 import { animateCardFlight, elementForMatchFlight } from '../lib/effects';
 import { drawnMatchFlight, groupFloorCardsByMonth, matchFlightOnFloor, nextTableDrawId } from '../lib/floorStack';
 import { loadAutoPlay, loadGostopAiDifficulty, loadGostopPointValue, saveAutoPlay, saveGostopAiDifficulty } from '../lib/gamePreferences';
 import { useGameViewportFit } from '../lib/gameViewport';
-import { loadSoloProfile, saveProfile } from '../lib/localStore';
+import { loadSoloProfile, saveProfile, saveSoloProfile } from '../lib/localStore';
 import { writeScoreCookie } from '../lib/scoreCookie';
 import type { GostopSettlementRequest, MatchStatistics, UserProfile } from '../lib/types';
 
@@ -99,8 +103,7 @@ interface GostopShakeChoice {
 }
 
 function playerName(player: GostopPlayerId, user: UserProfile, computerPlayers: GostopComputerPlayers) {
-  const actor = player === 'human' ? 'player' : computerPlayers[player].voiceActor;
-  return voiceActorDisplayName(actor, user.displayName);
+  return player === 'human' ? user.displayName : computerPlayers[player].name;
 }
 
 function voiceActor(player: GostopPlayerId | null, computerPlayers: GostopComputerPlayers): VoiceActor {
@@ -148,6 +151,9 @@ export default function GostopGamePage() {
   });
   const [gookjinChoiceOpen, setGookjinChoiceOpen] = useState(false);
   const [exitDialogOpen, setExitDialogOpen] = useState(false);
+  const [nameEditorOpen, setNameEditorOpen] = useState(false);
+  const [seatChangeNotice, setSeatChangeNotice] = useState('');
+  const [opponentWait, setOpponentWait] = useState(false);
   const [exitReserved, setExitReserved] = useState(false);
   const [dealing, setDealing] = useState(true);
   const [declaration, setDeclaration] = useState<DeclarationEffect | null>(null);
@@ -169,15 +175,58 @@ export default function GostopGamePage() {
         navigate('/gostop', { replace: true });
         return;
       }
-      setUser(profile);
-      setComputerBalances({
-        computerA: profile.gostopComputerABalance ?? DEFAULT_GOSTOP_COMPUTER_BALANCE,
-        computerB: profile.gostopComputerBBalance ?? DEFAULT_GOSTOP_COMPUTER_BALANCE
-      });
+      const computerA = migrateOpponentEntry('hwatu.gostop-entry-a', opponentEntryBalance(profile.gostopComputerABalance));
+      const computerB = migrateOpponentEntry('hwatu.gostop-entry-b', opponentEntryBalance(profile.gostopComputerBBalance));
+      const next = { ...profile, gostopComputerABalance: computerA, gostopComputerBBalance: computerB };
+      setUser(next);
+      setComputerBalances({ computerA, computerB });
+      if (computerA !== profile.gostopComputerABalance || computerB !== profile.gostopComputerBBalance) {
+        void (next.id === SOLO_USER_ID ? saveSoloProfile(next) : saveProfile(next));
+      }
       roundGameUuidRef.current = randomUuid();
       settledRoundRef.current = null;
       setRoom(createGostopRoom(Date.now(), loadGostopPointValue(), 1, 'human', computerPlayers));
       setDealing(true);
+    };
+    const reloadNewUser = new URLSearchParams(window.location.search).get('preview') !== '1' && claimFreshReload();
+    let cancelled = false;
+    let cancelWait: (() => void) | null = null;
+    const enterNewUsers = (profile: UserProfile) => {
+      const change = seatNextUser(getGostopOpponentSessionId(), 2);
+      const computerA = randomOpponentBalance();
+      const computerB = randomOpponentBalance();
+      const next = { ...profile, gostopComputerABalance: computerA, gostopComputerBBalance: computerB };
+      setUser(next);
+      setComputerBalances({ computerA, computerB });
+      void (next.id === SOLO_USER_ID ? saveSoloProfile(next) : saveProfile(next));
+      setOpponentWait(false);
+      setSeatChangeNotice(change.leftName ? `${change.leftName} 님이 나갔습니다. ${change.nextName} 님이 들어왔습니다.` : `${change.nextName} 님이 들어왔습니다.`);
+      roundGameUuidRef.current = randomUuid();
+      settledRoundRef.current = null;
+      setRoom(createGostopRoom(Date.now(), loadGostopPointValue(), 1, 'human', assignGostopPlayers(getGostopOpponentSessionId(), randomUuid())));
+      setDealing(true);
+    };
+    const startRoom = (profile: UserProfile) => {
+      if (profile.virtualBalance <= 0) {
+        navigate('/gostop', { replace: true });
+        return;
+      }
+      if (!reloadNewUser) {
+        openRoom(profile);
+        return;
+      }
+      setUser(profile);
+      setOpponentWait(true);
+      setSeatChangeNotice('상대방을 기다리고 있습니다.');
+      let done = false;
+      const timer = window.setTimeout(() => {
+        done = true;
+        enterNewUsers(profile);
+      }, OPPONENT_WAIT_MS);
+      cancelWait = () => {
+        window.clearTimeout(timer);
+        if (!done) releaseFreshReload();
+      };
     };
     if (import.meta.env.DEV && new URLSearchParams(window.location.search).get('preview') === '1') {
       openRoom({ id: 0, username: 'preview', displayName: '어머니', role: 'member', virtualBalance: 136000 });
@@ -216,13 +265,25 @@ export default function GostopGamePage() {
         });
       }
       await saveProfile(result.user);
-      openRoom(result.user);
-    }).catch(async () => openRoom(createSoloProfile(await loadSoloProfile())));
+      if (cancelled) return;
+      startRoom(result.user);
+    }).catch(async () => {
+      if (cancelled) return;
+      const profile = createSoloProfile(await loadSoloProfile());
+      if (cancelled) return;
+      startRoom(profile);
+    });
+    return () => {
+      cancelled = true;
+      if (cancelWait) cancelWait();
+      else if (reloadNewUser) releaseFreshReload();
+    };
   }, [computerPlayers, navigate]);
 
   useEffect(() => {
     applyAudioSettings(audioSettings);
     saveAudioSettings(audioSettings);
+    if (!audioSettings.muted) void unlockAudio();
   }, [audioSettings]);
   useEffect(() => {
     if (!room) return;
@@ -239,7 +300,6 @@ export default function GostopGamePage() {
     window.addEventListener('pointerdown', enableAudio, { once: true });
     return () => {
       window.removeEventListener('pointerdown', enableAudio);
-      pauseGameAudio();
     };
   }, []);
 
@@ -445,7 +505,7 @@ export default function GostopGamePage() {
     return () => window.clearTimeout(timer);
   }, [autoPlay, dealing, room]);
 
-  if (!user || !room) return <Loading message="고스톱 게임방을 열고 있습니다" />;
+  if (!user || !room) return <Loading message={opponentWait ? '상대방을 기다리고 있습니다' : '고스톱 게임방을 열고 있습니다'} />;
   const liveBalances = room.phase === 'round-ended'
     ? { human: user.virtualBalance, computerA: computerBalances.computerA, computerB: computerBalances.computerB }
     : settleGostopPointDeltas({
@@ -609,7 +669,22 @@ export default function GostopGamePage() {
       roundGameUuidRef.current = randomUuid();
       settledRoundRef.current = null;
       const nextStarter = room.roundResult === 'win' && room.winner ? room.winner : room.startingPlayer;
-      setRoom(createGostopRoom(Date.now(), room.pointValue, nextGostopRoundMultiplier(room.roundResult), nextStarter, room.computerPlayers));
+      if (room.phase === 'round-ended') {
+        const change = finishPlayerSeat();
+        if (change.leaving) {
+          const computerA = randomOpponentBalance();
+          const computerB = randomOpponentBalance();
+          setComputerBalances({ computerA, computerB });
+          setUser(current => {
+            if (!current) return current;
+            const next = { ...current, gostopComputerABalance: computerA, gostopComputerBBalance: computerB };
+            void (next.id === SOLO_USER_ID ? saveSoloProfile(next) : saveProfile(next));
+            return next;
+          });
+          setSeatChangeNotice(`${change.leftName} 님이 나갔습니다. ${change.nextName} 님이 들어왔습니다.`);
+        }
+      }
+      setRoom(createGostopRoom(Date.now(), room.pointValue, nextGostopRoundMultiplier(room.roundResult), nextStarter, assignGostopPlayers(getGostopOpponentSessionId(), randomUuid())));
       void unlockAudio().then(playStartSound);
     }
     catch { /* 정산이 끝나기 전에는 리필하지 않고 안내를 유지합니다. */ }
@@ -629,7 +704,22 @@ export default function GostopGamePage() {
     roundGameUuidRef.current = randomUuid();
     settledRoundRef.current = null;
     const nextStarter = room.roundResult === 'win' && room.winner ? room.winner : room.startingPlayer;
-    setRoom(createGostopRoom(Date.now(), room.pointValue, nextGostopRoundMultiplier(room.roundResult), nextStarter, room.computerPlayers));
+    if (room.phase === 'round-ended') {
+      const change = finishPlayerSeat();
+      if (change.leaving) {
+        const computerA = randomOpponentBalance();
+        const computerB = randomOpponentBalance();
+        setComputerBalances({ computerA, computerB });
+        setUser(current => {
+          if (!current) return current;
+          const next = { ...current, gostopComputerABalance: computerA, gostopComputerBBalance: computerB };
+          void (next.id === SOLO_USER_ID ? saveSoloProfile(next) : saveProfile(next));
+          return next;
+        });
+        setSeatChangeNotice(`${change.leftName} 님이 나갔습니다. ${change.nextName} 님이 들어왔습니다.`);
+      }
+    }
+    setRoom(createGostopRoom(Date.now(), room.pointValue, nextGostopRoundMultiplier(room.roundResult), nextStarter, assignGostopPlayers(getGostopOpponentSessionId(), randomUuid())));
     void unlockAudio().then(playStartSound);
   };
   const reserveExit = () => {
@@ -669,6 +759,7 @@ export default function GostopGamePage() {
 
   return <div className={`${viewportFit.className} gostop-room-page`} style={viewportFit.style}>
     <main className="gostop-table">
+      {seatChangeNotice && <p className="opponent-left-notice gostop-seat-change" role="alert">{seatChangeNotice}</p>}
       <aside className="gostop-room-info" aria-label="게임방 정보">
         <strong>3인 고스톱 <span>점 {room.pointValue.toLocaleString('ko-KR')}냥{room.roundMultiplier > 1 ? ` · 나가리 ×${room.roundMultiplier}` : ''}</span></strong>
       </aside>
@@ -710,7 +801,7 @@ export default function GostopGamePage() {
       </section>
       <div className="gostop-room-status" aria-live="polite"><strong>{room.phase === 'round-ended' ? '판 종료' : humanTurn ? '내 차례' : `${playerName(room.currentPlayer, user, room.computerPlayers)} 차례`}</strong><span>{room.lastAction}</span></div>
       <section className={`gostop-human-seat${humanTurn ? ' active' : ''}`}>
-        <div className="gostop-player-summary human"><span>🙂</span><b>{user.displayName}</b><small>{money}냥</small></div>
+        <div className="gostop-player-summary human"><span>🙂</span><button type="button" className="own-name-button" aria-label={`${user.displayName} 이름 수정`} onClick={() => setNameEditorOpen(true)}>{user.displayName}</button><small>{money}냥</small></div>
         <GostopScoreSummary key={`${humanScore.total}-${room.players.human.goCount}`} score={humanScore} capturedCount={room.players.human.captured.length} goCount={room.players.human.goCount} />
         <div className="gostop-human-captured">
           <b>내가 먹은 패</b>
@@ -777,5 +868,14 @@ export default function GostopGamePage() {
     {room.phase === 'round-ended' && <GostopRoundResult room={room} winnerName={room.winner ? playerName(room.winner, user, room.computerPlayers) : ''} exitReserved={exitReserved} balanceEmpty={balanceEmpty} onContinue={newRound} onExit={leaveNow} onReturnLobby={() => navigate('/gostop')} onRefill={() => void refillAndContinue()} />}
     {exitDialogOpen && <ExitChoiceDialog onReserve={reserveExit} onImmediate={leaveNow} onCancel={() => setExitDialogOpen(false)} guide="현재 판을 마친 뒤 나가거나, 지금 바로 나갈 수 있습니다." immediateDescription="현재 판을 중단하고 바로 나갑니다" />}
     {declaration && <GameDeclarationOverlay key={declaration.id} effect={declaration} />}
+    {nameEditorOpen && <NameEditDialog name={user.displayName} onClose={() => setNameEditorOpen(false)} onSave={name => {
+      setUser(current => {
+        if (!current) return current;
+        const next = { ...current, displayName: name };
+        void (next.id === SOLO_USER_ID ? saveSoloProfile(next) : saveProfile(next));
+        return next;
+      });
+      setNameEditorOpen(false);
+    }} />}
   </div>;
 }

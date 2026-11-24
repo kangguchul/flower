@@ -3,6 +3,8 @@ import { createInitialGame } from '../engine/gameState';
 import { createGostopRoom } from '../games/gostop/gameState';
 import { getGostopOpponentSessionId, gostopComputerPlayersForSession, resetGostopOpponentSession, voiceActorDisplayName, VOICE_ACTOR_NAMES } from '../lib/computerPlayers';
 import { getMatgoOpponentSessionId, opponentNameForGame, opponentProfileForSession, resetMatgoOpponentSession } from '../lib/opponentNames';
+import { claimFreshReload, releaseFreshReload } from '../lib/pageLoad';
+import { assignPlayerIndexes, finishPlayerSeat, MAX_CONSECUTIVE_ROUNDS, MIN_CONSECUTIVE_ROUNDS, PLAYER_ID_COUNT, playerIdAt, playerIds, randomConsecutiveRounds, seatNextUser } from '../lib/playerIds';
 
 describe('컴퓨터 상대 이름', () => {
   afterEach(() => vi.unstubAllGlobals());
@@ -24,12 +26,58 @@ describe('컴퓨터 상대 이름', () => {
   it('같은 판에서는 항상 같은 이름을 사용한다', () => {
     const gameUuid = '44b5331b-f506-4a21-9f04-1666ab76387b';
     expect(opponentNameForGame(gameUuid)).toBe(opponentNameForGame(gameUuid));
-    expect(['이서윤', '박영수', '최동철', '김영숙', '이정호', '한서진']).toContain(opponentNameForGame(gameUuid));
+    expect(opponentNameForGame(gameUuid)).toMatch(/^[A-Za-z][A-Za-z0-9._]{12,20}[A-Za-z0-9]$/);
+    expect(opponentNameForGame(gameUuid).startsWith('ID-')).toBe(false);
   });
 
-  it('맞고 입장마다 이름이 부여된 여섯 상대 음성 중 하나를 선택한다', () => {
+  it('아이디 1000개를 만들고 여러 번 둔 뒤에는 다른 상대를 고른다', () => {
+    expect(playerIds()).toHaveLength(PLAYER_ID_COUNT);
+    expect(new Set(playerIds()).size).toBe(PLAYER_ID_COUNT);
+    expect(playerIdAt(0)).toBe('apple19_mapleOOO');
+    expect(playerIdAt(999)).toBe('zzharin14_latteoo');
+    expect(playerIds().every(id => /^[A-Za-z][A-Za-z0-9._]{12,20}[A-Za-z0-9]$/.test(id) && !id.startsWith('ID-') && (id.match(/[A-Za-z]+|\d+/g) ?? []).length >= 3 && !/^[A-Za-z]+[._][A-Za-z]+$/.test(id))).toBe(true);
     const names = new Set(Array.from({ length: 300 }, (_, index) => opponentNameForGame(`44b5331b-f506-4a21-9f04-${String(index).padStart(12, '0')}`)));
-    expect(names).toEqual(new Set(['이서윤', '박영수', '최동철', '김영숙', '이정호', '한서진']));
+    expect(names.size).toBeGreaterThan(6);
+    const gameUuid = '44b5331b-f506-4a21-9f04-1666ab76387b';
+    expect(opponentNameForGame(gameUuid, 1)).not.toBe(opponentNameForGame(gameUuid, 0));
+    const memory = new Map<string, string>();
+    const store = { getItem: (key: string) => memory.get(key) ?? null, setItem: (key: string, value: string) => memory.set(key, value) };
+    const oneRound = () => 0;
+    const first = assignPlayerIndexes('game-a', 1, '같은사람', store, oneRound);
+    expect(assignPlayerIndexes('game-a', 1, '같은사람', store, oneRound)).toEqual(first);
+    expect(assignPlayerIndexes('game-b', 1, '같은사람', store, oneRound)).toEqual(first);
+    expect(finishPlayerSeat(store, oneRound)).toMatchObject({ leaving: true, leftName: playerIdAt(first[0]) });
+    expect(assignPlayerIndexes('game-c', 1, '같은사람', store, oneRound)[0]).not.toBe(first[0]);
+    expect(randomConsecutiveRounds(() => 0)).toBe(MIN_CONSECUTIVE_ROUNDS);
+    expect(randomConsecutiveRounds(() => 0.999)).toBe(MAX_CONSECUTIVE_ROUNDS);
+    const longStore = { getItem: (key: string) => memory.get(`long:${key}`) ?? null, setItem: (key: string, value: string) => memory.set(`long:${key}`, value) };
+    const same = assignPlayerIndexes('round-1', 1, '같은사람', longStore, () => 0.999);
+    for (let round = 1; round < MAX_CONSECUTIVE_ROUNDS; round += 1) {
+      expect(finishPlayerSeat(longStore, () => 0.999).leaving).toBe(false);
+      expect(assignPlayerIndexes(`round-${round + 1}`, 1, '같은사람', longStore, () => 0.999)).toEqual(same);
+    }
+    expect(finishPlayerSeat(longStore, () => 0.999).leaving).toBe(true);
+  });
+
+  it('새로고침은 같은 상대를 유지하지 않고 새 사용자를 입장시킨다', () => {
+    const memory = new Map<string, string>();
+    const store = { getItem: (key: string) => memory.get(key) ?? null, setItem: (key: string, value: string) => memory.set(key, value) };
+    const first = assignPlayerIndexes('loaded', 1, '사람', store, () => 0);
+    const next = seatNextUser('사람', 1, store, () => 0);
+    expect(next.leftName).toBe(playerIdAt(first[0]));
+    expect(next.indexes[0]).not.toBe(first[0]);
+    expect(assignPlayerIndexes('after-reload', 1, '사람', store, () => 0)).toEqual(next.indexes);
+    const stamps = new Map<string, string>();
+    const stampStore = {
+      getItem: (key: string) => stamps.get(key) ?? null,
+      setItem: (key: string, value: string) => stamps.set(key, value),
+      removeItem: (key: string) => { stamps.delete(key); }
+    };
+    expect(claimFreshReload(stampStore, 'load-1', 'navigate')).toBe(false);
+    expect(claimFreshReload(stampStore, 'load-1', 'reload')).toBe(true);
+    expect(claimFreshReload(stampStore, 'load-1', 'reload')).toBe(false);
+    releaseFreshReload(stampStore);
+    expect(claimFreshReload(stampStore, 'load-1', 'reload')).toBe(true);
   });
 
   it('맞고 입장 세션 동안 이름과 음성을 함께 고정한다', () => {
@@ -73,30 +121,28 @@ describe('컴퓨터 상대 이름', () => {
     expect(createInitialGame(1).gameUuid).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
   });
 
-  it('각 이름은 맞고와 고스톱에서 같은 전용 음성을 사용한다', () => {
-    const profiles = Array.from({ length: 300 }, (_, index) => opponentProfileForSession(`session-${index}`));
-    expect(profiles.find(profile => profile.name === '이서윤')?.voiceActor).toBe('gostopComputerA');
-    expect(profiles.find(profile => profile.name === '박영수')?.voiceActor).toBe('gostopComputerB');
-    expect(profiles.find(profile => profile.name === '최동철')?.voiceActor).toBe('gostopComputerC');
-    expect(profiles.find(profile => profile.name === '김영숙')?.voiceActor).toBe('matgoFemale');
-    expect(profiles.find(profile => profile.name === '이정호')?.voiceActor).toBe('opponent');
-    expect(profiles.find(profile => profile.name === '한서진')?.voiceActor).toBe('gostopComputerD');
+  it('같은 아이디는 항상 같은 음성을 쓰고 세 글자 이름에 묶이지 않는다', () => {
+    const first = opponentProfileForSession('session-0', 0);
+    expect(opponentProfileForSession('session-0', 0)).toEqual(first);
+    expect(first.name).toMatch(/^[A-Za-z][A-Za-z0-9._]{12,20}[A-Za-z0-9]$/);
+    expect(opponentProfileForSession('session-0', 1).name).not.toBe(first.name);
   });
 
-  it('고스톱 입장마다 여섯 캐릭터 중 두 음성을 무작위 배치하고 중복하지 않는다', () => {
+  it('고스톱은 서로 다른 아이디 둘을 상대로 두고 다시 두면 바뀐다', () => {
     const selectedNames = new Set<string>();
-    const arrangements = new Set(Array.from({ length: 300 }, (_, index) => {
+    Array.from({ length: 300 }, (_, index) => {
       const players = gostopComputerPlayersForSession(`gostop-session-${index}`);
       expect(players.computerA.voiceActor).not.toBe(players.computerB.voiceActor);
+      expect(players.computerA.name).not.toBe(players.computerB.name);
+      expect(players.computerA.name).toMatch(/^[A-Za-z][A-Za-z0-9._]{12,20}[A-Za-z0-9]$/);
       selectedNames.add(players.computerA.name);
       selectedNames.add(players.computerB.name);
-      return `${players.computerA.name}/${players.computerB.name}`;
-    }));
-    expect(selectedNames).toEqual(new Set(['이서윤', '박영수', '최동철', '김영숙', '이정호', '한서진']));
-    expect(arrangements.size).toBe(30);
-    const middleAged = Array.from({ length: 300 }, (_, index) => gostopComputerPlayersForSession(`gostop-session-${index}`))
-      .find(players => players.computerA.name === '최동철')!;
-    expect(createGostopRoom(308, 100, 1, 'computerA', middleAged).lastAction).toContain('최동철이가 선');
+      return players;
+    });
+    expect(selectedNames.size).toBeGreaterThan(6);
+    const players = gostopComputerPlayersForSession('gostop-session-7');
+    expect(gostopComputerPlayersForSession('gostop-session-7', 1).computerA.name).not.toBe(players.computerA.name);
+    expect(createGostopRoom(308, 100, 1, 'computerA', players).lastAction).toContain(`${players.computerA.name}가 선`);
   });
 
   it('AI 판단용 난수값이 달라져도 판 고유번호가 같으면 이름이 유지된다', () => {

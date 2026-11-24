@@ -127,6 +127,12 @@ export function createVisitStore(idsFile, countFile, options) {
           }
           catch { /* 오늘 접속 수는 이번 실행에서 다시 셉니다. */ }
         }
+        if (options?.seedTotal) {
+          try {
+            await options.seedTotal(await readCount());
+          }
+          catch { /* 누적 수는 다음 조회에서 다시 맞춘다. */ }
+        }
       })();
     }
     return ready;
@@ -191,6 +197,7 @@ export function createVisitStore(idsFile, countFile, options) {
       const run = chain.then(async () => {
         await ensureLoaded();
         if (broken) return null;
+        if (options?.summary) return await options.summary(now);
         rollToday(now);
         return { current: currentVisitors(now), today: todayCount, total: await readCount() };
       });

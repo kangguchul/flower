@@ -21,6 +21,7 @@ interface RoundResultOverlayProps {
   exitReserved?: boolean;
   moneyTransfer?: MoneyTransfer | null;
   balanceEmpty?: boolean;
+  autoPlay?: boolean;
   disabled?: boolean;
   onContinue: () => void;
   onExit: () => void;
@@ -30,7 +31,7 @@ interface RoundResultOverlayProps {
 
 const money = (value: number) => new Intl.NumberFormat('ko-KR').format(value);
 
-export default function RoundResultOverlay({ game, opponentName = '상대', exitReserved = false, moneyTransfer, balanceEmpty = false, disabled = false, onContinue, onExit, onReturnHome = onExit, onRefill }: RoundResultOverlayProps) {
+export default function RoundResultOverlay({ game, opponentName = '상대', exitReserved = false, moneyTransfer, balanceEmpty = false, autoPlay = false, disabled = false, onContinue, onExit, onReturnHome = onExit, onRefill }: RoundResultOverlayProps) {
   const settlement = game.settlement;
   const winner = game.winner === 'human' ? '내가 이겼습니다!' : game.winner === 'computer' ? `${opponentName} 님이 이겼습니다.` : '이번 판은 나가리입니다.';
   const transferTone = !moneyTransfer
@@ -75,7 +76,7 @@ export default function RoundResultOverlay({ game, opponentName = '상대', exit
         </div>
       </> : <>
         <div className="result-footer">
-          <p className="result-question">2초 후 다음 판이 시작됩니다.</p>
+          <p className="result-question">{autoPlay ? '2초 후 다음 판이 시작됩니다.' : '다음 판을 시작할까요?'}</p>
           <div className="result-actions">
             <button type="button" className="result-new-button" disabled={disabled} onClick={onContinue}>확인 · 바로 시작</button>
             <button type="button" className="result-exit-button" disabled={disabled} onClick={onExit}>나가기</button>

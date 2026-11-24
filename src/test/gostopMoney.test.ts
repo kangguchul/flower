@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { settleGostopBalances, settleGostopPointDeltas } from '../games/gostop/money';
+import { MIN_OPPONENT_BALANCE } from '../lib/opponentBalance';
 
 describe('고스톱 게임머니 정산', () => {
   it('내가 이기면 두 컴퓨터에게서 각각 정산받는다', () => {
@@ -19,10 +20,10 @@ describe('고스톱 게임머니 정산', () => {
   });
 
   it('패자의 보유 금액보다 많이 가져가지 않고 0냥이 된 컴퓨터만 자동 리필한다', () => {
-    expect(settleGostopBalances({ human: 5_000, computerA: 500_000, computerB: 3_000 }, 'computerA', 20_000)).toEqual({
+    expect(settleGostopBalances({ human: 5_000, computerA: 500_000, computerB: 3_000 }, 'computerA', 20_000, () => 0)).toEqual({
       human: 0,
       computerA: 508_000,
-      computerB: 500_000
+      computerB: MIN_OPPONENT_BALANCE
     });
   });
 

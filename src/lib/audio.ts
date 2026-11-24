@@ -1,3 +1,4 @@
+import { audioContextIsBlocked } from './audioContextState';
 import { DEFAULT_AUDIO_SETTINGS, type AudioSettings, normalizeAudioSettings } from './audioSettings';
 import {
   loadGameAudioAsset,
@@ -157,9 +158,24 @@ function raiseGameMusicMood(mood: GameMusicMood) {
   setGameMusicMood(escalateGameMusicMood(musicMood, mood));
 }
 
-function playRecordedEffect(key: EffectAudioAssetKey, gainValue: number) {
+async function ensureAudioRunning() {
+  const current = graph;
+  if (!current || current.context.state === 'closed') return false;
+  if (audioContextIsBlocked(current.context.state)) {
+    try { await current.context.resume(); }
+    catch { return false; }
+  }
+  return current.context.state === 'running';
+}
+
+function playRecordedEffect(key: EffectAudioAssetKey, gainValue: number, afterResume = false) {
   const current = getGraph();
-  if (!current || current.context.state !== 'running' || settings.muted) return;
+  if (!current || settings.muted) return;
+  if (current.context.state !== 'running') {
+    if (afterResume) return;
+    void ensureAudioRunning().then(running => { if (running) playRecordedEffect(key, gainValue, true); });
+    return;
+  }
   if (playGameAudioAsset(current.context, current.effects, key, gainValue)) return;
   void loadGameAudioAsset(current.context, key).then(buffer => {
     if (!buffer || settings.muted || current.context.state !== 'running') return;
@@ -167,13 +183,18 @@ function playRecordedEffect(key: EffectAudioAssetKey, gainValue: number) {
   });
 }
 
-function playRecordedVoice(key: VoiceAudioAssetKey, delay = 0) {
+function playRecordedVoice(key: VoiceAudioAssetKey, delay = 0, afterResume = false) {
   if (settings.muted || settings.volume <= 0) return;
   const timer = window.setTimeout(() => {
     voiceTimers.delete(timer);
     if (settings.muted || settings.volume <= 0) return;
     const current = getGraph();
-    if (!current || current.context.state !== 'running') return;
+    if (!current) return;
+    if (current.context.state !== 'running') {
+      if (afterResume) return;
+      void ensureAudioRunning().then(running => { if (running) playRecordedVoice(key, 0, true); });
+      return;
+    }
     void loadGameAudioAsset(current.context, key).then(buffer => {
       if (!buffer || settings.muted || settings.volume <= 0 || current.context.state !== 'running') return;
       if (voiceSource) {
@@ -235,8 +256,12 @@ export function applyAudioSettings(next: AudioSettings) {
 
 export async function unlockAudio() {
   const current = getGraph();
-  if (current?.context.state === 'suspended') await current.context.resume();
-  if (current) warmGameAudioEffects(current.context);
+  if (!current) return;
+  if (current.context.state !== 'running') {
+    const running = await ensureAudioRunning();
+    if (!running) return;
+    warmGameAudioEffects(current.context);
+  }
   setMasterVolume();
   startBackgroundMusic();
 }
@@ -250,7 +275,6 @@ export function pauseGameAudio() {
     catch { /* 이미 종료된 음성은 무시 */ }
     voiceSource = null;
   }
-  if (graph?.context.state === 'running') graph.context.suspend().catch(() => undefined);
 }
 
 export function playCardSound() {
@@ -433,13 +457,16 @@ export function playStartSound() {
   playRecordedVoice('voiceStart', 140);
 }
 
-document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') {
-    stopBackgroundMusic();
-    graph?.context.suspend().catch(() => undefined);
-    return;
-  }
-  if (graph?.context.state === 'suspended') {
-    graph.context.resume().then(startBackgroundMusic).catch(() => undefined);
-  }
-});
+function resumeAudioAfterReturn() {
+  void ensureAudioRunning().then(running => { if (running) startBackgroundMusic(); });
+}
+
+document.addEventListener('visibilitychange', resumeAudioAfterReturn);
+window.addEventListener('pageshow', resumeAudioAfterReturn);
+window.addEventListener('focus', resumeAudioAfterReturn);
+const resumeFromGesture = () => {
+  if (graph && !audioContextIsBlocked(graph.context.state)) return;
+  void unlockAudio();
+};
+window.addEventListener('pointerdown', resumeFromGesture, true);
+window.addEventListener('touchend', resumeFromGesture, true);

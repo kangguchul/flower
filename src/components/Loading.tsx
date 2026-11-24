@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { loadVisitCount, readVisitTotal } from '../lib/visitCount';
 
-export default function Loading({ message = '가족화투를 불러오고 있습니다', visitorCount }: { message?: string; visitorCount?: number | null }) {
+export default function Loading({ message = '상대를 찾고있습니다.', visitorCount }: { message?: string; visitorCount?: number | null }) {
   const [count, setCount] = useState<number | null>(visitorCount ?? readVisitTotal());
   useEffect(() => {
     if (visitorCount != null) {

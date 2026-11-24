@@ -100,6 +100,11 @@ describe('누적 접속 인원', () => {
       expect(await days.record(first, '1.1.1.1', evening)).toEqual({ total: 1, ordinal: 1 });
       expect(await days.record(first, '1.1.1.1', nextDay)).toEqual({ total: 2, ordinal: 2 });
       expect(await days.stats(nextDay)).toEqual({ current: 1, today: 1, total: 2 });
+
+      const fromDatabase = createVisitStore(path.join(directory, 'db.json'), path.join(directory, 'db.ini'), {
+        summary: async () => ({ current: 4, today: 9, total: 103 })
+      });
+      expect(await fromDatabase.stats(now)).toEqual({ current: 4, today: 9, total: 103 });
     }
     finally {
       await rm(directory, { recursive: true, force: true });

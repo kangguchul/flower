@@ -1,6 +1,7 @@
 import { useRef } from 'react';
 import { randomUuid } from '../engine/random';
 import type { VoiceActor } from './audio';
+import { assignPlayerIndexes, hashText, playerIdProfile, type PlayerIdProfile } from './playerIds';
 
 export type ComputerPlayerSlot = 'computerA' | 'computerB';
 export interface ComputerPlayerProfile {
@@ -27,38 +28,32 @@ export function voiceActorDisplayName(voiceActor: VoiceActor, userDisplayName: s
   return voiceActor === 'player' ? userDisplayName : VOICE_ACTOR_NAMES[voiceActor];
 }
 
-const COMPUTER_VOICE_PROFILES = Object.freeze([
-  Object.freeze({ name: VOICE_ACTOR_NAMES.gostopComputerA, actionLabel: '이서윤이', icon: '🐶', voiceActor: 'gostopComputerA' as VoiceActor }),
-  Object.freeze({ name: VOICE_ACTOR_NAMES.gostopComputerB, actionLabel: '박영수', icon: '🐯', voiceActor: 'gostopComputerB' as VoiceActor }),
-  Object.freeze({ name: VOICE_ACTOR_NAMES.gostopComputerC, actionLabel: '최동철이', icon: '🐻', voiceActor: 'gostopComputerC' as VoiceActor }),
-  Object.freeze({ name: VOICE_ACTOR_NAMES.matgoFemale, actionLabel: '김영숙이', icon: '🐱', voiceActor: 'matgoFemale' as VoiceActor }),
-  Object.freeze({ name: VOICE_ACTOR_NAMES.opponent, actionLabel: '이정호', icon: '🦊', voiceActor: 'opponent' as VoiceActor }),
-  Object.freeze({ name: VOICE_ACTOR_NAMES.gostopComputerD, actionLabel: '한서진이', icon: '🦋', voiceActor: 'gostopComputerD' as VoiceActor })
-]);
-
-export const COMPUTER_PLAYERS = Object.freeze({
-  computerA: COMPUTER_VOICE_PROFILES[0],
-  computerB: COMPUTER_VOICE_PROFILES[1]
-});
-
-export const MATGO_OPPONENTS = COMPUTER_VOICE_PROFILES;
-
-function hashText(value: string): number {
-  let hash = 0x811c9dc5;
-  for (const character of value) {
-    hash ^= character.charCodeAt(0);
-    hash = Math.imul(hash, 0x01000193);
-  }
-  return hash >>> 0;
+function computerProfile(profile: PlayerIdProfile): ComputerPlayerProfile {
+  return { name: profile.name, actionLabel: profile.name, icon: profile.icon, voiceActor: profile.voiceActor };
 }
 
-export function gostopComputerPlayersForSession(sessionId: string): GostopComputerPlayers {
+export const COMPUTER_PLAYERS = Object.freeze({
+  computerA: computerProfile(playerIdProfile(0)),
+  computerB: computerProfile(playerIdProfile(1))
+});
+
+export function gostopComputerPlayersForSession(sessionId: string, roundsPlayed = 0): GostopComputerPlayers {
   const hash = hashText(sessionId);
-  const firstIndex = hash % COMPUTER_VOICE_PROFILES.length;
-  const secondOffset = 1 + ((hash >>> 8) % (COMPUTER_VOICE_PROFILES.length - 1));
+  const first = (hash + roundsPlayed) % 1000;
+  let second = (first + 1 + ((hash >>> 8) % 998)) % 1000;
+  if (second === first) second = (first + 1) % 1000;
+  if (second % 6 === first % 6) second = (second + 1) % 1000;
   return {
-    computerA: COMPUTER_VOICE_PROFILES[firstIndex],
-    computerB: COMPUTER_VOICE_PROFILES[(firstIndex + secondOffset) % COMPUTER_VOICE_PROFILES.length]
+    computerA: computerProfile(playerIdProfile(first)),
+    computerB: computerProfile(playerIdProfile(second))
+  };
+}
+
+export function assignGostopPlayers(seed: string, gameId: string): GostopComputerPlayers {
+  const [first, second] = assignPlayerIndexes(gameId, 2, seed);
+  return {
+    computerA: computerProfile(playerIdProfile(first)),
+    computerB: computerProfile(playerIdProfile(second))
   };
 }
 
@@ -81,13 +76,15 @@ export function resetGostopOpponentSession() {
 }
 
 export function useGostopComputerPlayers(): GostopComputerPlayers {
+  const sessionRef = useRef<string | null>(null);
   const playersRef = useRef<GostopComputerPlayers | null>(null);
-  playersRef.current ??= gostopComputerPlayersForSession(getGostopOpponentSessionId());
+  sessionRef.current ??= getGostopOpponentSessionId();
+  playersRef.current ??= assignGostopPlayers(sessionRef.current, randomUuid());
   return playersRef.current;
 }
 
 export function computerPlayerName(player: ComputerPlayerSlot, players: GostopComputerPlayers = COMPUTER_PLAYERS): string {
-  return voiceActorDisplayName(players[player].voiceActor, '');
+  return players[player].name;
 }
 
 export function computerPlayerActionLabel(player: ComputerPlayerSlot, players: GostopComputerPlayers = COMPUTER_PLAYERS): string {

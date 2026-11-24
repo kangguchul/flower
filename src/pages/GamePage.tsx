@@ -12,6 +12,7 @@ import DifficultySelector from '../components/DifficultySelector';
 import DealAnimation from '../components/DealAnimation';
 import DiscardConfirmationToggle from '../components/DiscardConfirmationToggle';
 import ExitChoiceDialog from '../components/ExitChoiceDialog';
+import NameEditDialog from '../components/NameEditDialog';
 import FloorCardField, { type FloorCardChoice } from '../components/FloorCardField';
 import GameDeclarationOverlay, { type DeclarationEffect, type DeclarationKind } from '../components/GameDeclarationOverlay';
 import GamePlayerPanel from '../components/GamePlayerPanel';
@@ -40,7 +41,7 @@ import { normalizeMatgoPointValue, type MatgoPointValue } from '../engine/rules/
 import { findBombOptions, findShakeOptions, type BombOption } from '../engine/rules/specialRules';
 import type { GameState, TurnResult, TurnSpecialEvent } from '../engine/types';
 import { loadMatgoServerGame, refillBalance, saveMatgoServerGame, session } from '../lib/api';
-import { applyAudioSettings, pauseGameAudio, playAutoPlaySound, playBombSound, playBonusPeeSound, playCancelSound, playCaptureSound, playCardSound, playChongtongSound, playDealerResultSound, playDealSound, playDecisionSound, playFlipSound, playGoSound, playGookjinSound, playLoseSound, playMissionSound, playMoneySound, playNagariSound, playPeeTransferSound, playPpeokSound, playScoreSound, playSelectSound, playShakeSound, playSpecialMoveSound, playStartSound, playStopSound, playUndoSound, playWinSound, unlockAudio, type VoiceActor } from '../lib/audio';
+import { applyAudioSettings, playAutoPlaySound, playBombSound, playBonusPeeSound, playCancelSound, playCaptureSound, playCardSound, playChongtongSound, playDealerResultSound, playDealSound, playDecisionSound, playFlipSound, playGoSound, playGookjinSound, playLoseSound, playMissionSound, playMoneySound, playNagariSound, playPeeTransferSound, playPpeokSound, playScoreSound, playSelectSound, playShakeSound, playSpecialMoveSound, playStartSound, playStopSound, playUndoSound, playWinSound, unlockAudio, type VoiceActor } from '../lib/audio';
 import { loadAudioSettings, saveAudioSettings, type AudioSettings } from '../lib/audioSettings';
 import { useVolumeWheel } from '../lib/useVolumeWheel';
 import { animateCapturedCardTransfers, animateCardFlight, elementForMatchFlight } from '../lib/effects';
@@ -50,12 +51,16 @@ import { chooseLatestGame, shouldResumeSavedGame } from '../lib/gameResume';
 import { useGameViewportFit } from '../lib/gameViewport';
 import { remainingTurnUndos, useTurnUndo } from '../lib/useTurnUndo';
 import { useProfileImageUpload } from '../lib/useProfileImageUpload';
-import { useMatgoOpponent } from '../lib/opponentNames';
+import { getMatgoOpponentSessionId, useMatgoOpponent } from '../lib/opponentNames';
 import { handCardIndexFromKey, isTextEntryTarget } from '../lib/gameShortcuts';
+import { MANUAL_IDLE_MS, manualIdleKey } from '../lib/manualIdle';
+import { claimFreshReload, OPPONENT_WAIT_MS, releaseFreshReload } from '../lib/pageLoad';
+import { finishPlayerSeat, seatNextUser } from '../lib/playerIds';
 import { loadLocalGame, loadProfile, loadSoloProfile, saveLocalGame, saveProfile, saveSoloProfile } from '../lib/localStore';
 import AppInstallPrompt from '../components/AppInstallPrompt';
 import CustomerBoardLink from '../components/CustomerBoardLink';
 import { writeScoreCookie } from '../lib/scoreCookie';
+import { migrateOpponentEntry, randomOpponentBalance } from '../lib/opponentBalance';
 import { createSoloProfile, REFILL_RECONNECT_MESSAGE, settleSoloRound, SOLO_BALANCE, SOLO_USER_ID } from '../lib/soloPlay';
 import { applyGuestAction, type GuestAction } from '../lib/multiplayerView';
 import { useMultiplayer } from '../lib/useMultiplayer';
@@ -70,8 +75,8 @@ export default function GamePage() {
   const navigate = useNavigate();
   const location = useLocation();
   const viewportFit = useGameViewportFit();
-  const { name: opponentName, voiceActor: opponentVoiceActor } = useMatgoOpponent();
   const [game, setGame] = useState<GameState | null>(null);
+  const { name: opponentName, voiceActor: opponentVoiceActor } = useMatgoOpponent(game?.gameUuid);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [onlineSession, setOnlineSession] = useState<SessionData | null>(null);
   const profileImage = useProfileImageUpload(onlineSession !== null || (import.meta.env.DEV && new URLSearchParams(location.search).get('preview') === '1'), setProfile);
@@ -81,6 +86,11 @@ export default function GamePage() {
   const [preferredDifficulty, setPreferredDifficulty] = useState<AiDifficulty>(() => loadAiDifficulty());
   const [preferredPointValue, setPreferredPointValue] = useState<MatgoPointValue>(() => loadPointValue());
   const [exitDialogOpen, setExitDialogOpen] = useState(false);
+  const [nameEditorOpen, setNameEditorOpen] = useState(false);
+  const [opponentLeft, setOpponentLeft] = useState(false);
+  const [seatChangeNotice, setSeatChangeNotice] = useState('');
+  const [opponentWait, setOpponentWait] = useState(false);
+  const cancelReloadRef = useRef<(() => void) | null>(null);
   const [exitReserved, setExitReserved] = useState(false);
   const [computerBalance, setComputerBalance] = useState(500000);
   const [moneyTransfer, setMoneyTransfer] = useState<MoneyTransfer | null>(null);
@@ -124,6 +134,7 @@ export default function GamePage() {
   useEffect(() => {
     applyAudioSettings(audioSettings);
     saveAudioSettings(audioSettings);
+    if (!audioSettings.muted) void unlockAudio();
   }, [audioSettings]);
   useEffect(() => {
     if (!game) return;
@@ -137,7 +148,6 @@ export default function GamePage() {
   useEffect(() => saveDiscardConfirmation(discardConfirmation), [discardConfirmation]);
 
   useEffect(() => () => {
-    pauseGameAudio();
     if (dealTimerRef.current !== null) window.clearTimeout(dealTimerRef.current);
     if (declarationTimerRef.current !== null) window.clearTimeout(declarationTimerRef.current);
     if (autoPlayTimerRef.current !== null) window.clearTimeout(autoPlayTimerRef.current);
@@ -272,6 +282,38 @@ export default function GamePage() {
     initializedRef.current = true;
     const parameters = new URLSearchParams(location.search);
     soloModeRef.current = parameters.get('solo') === '1';
+    const reloadNewUser = parameters.get('multi') !== '1' && parameters.get('preview') !== '1' && claimFreshReload();
+    let cancelled = false;
+    const waitForNewUser = (account: UserProfile) => {
+      const fresh = createInitialGame(Date.now(), preferredDifficulty, preferredPointValue);
+      fresh.mission ??= createCardMission(fresh.randomSeed);
+      setProfile(account);
+      setComputerBalance(account.opponentBalance ?? SOLO_BALANCE);
+      setGame(fresh);
+      setStarted(false);
+      setOpponentWait(true);
+      setSeatChangeNotice('상대방을 기다리고 있습니다.');
+      let done = false;
+      const timer = window.setTimeout(() => {
+        done = true;
+        const change = seatNextUser(getMatgoOpponentSessionId(), 1);
+        const nextBalance = randomOpponentBalance();
+        const next = { ...account, opponentBalance: nextBalance };
+        setProfile(next);
+        setComputerBalance(nextBalance);
+        void (soloModeRef.current || next.id === SOLO_USER_ID ? saveSoloProfile(next) : saveProfile(next));
+        setOpponentWait(false);
+        setSeatChangeNotice(change.leftName ? `${change.leftName} 님이 나갔습니다. ${change.nextName} 님이 들어왔습니다.` : `${change.nextName} 님이 들어왔습니다.`);
+        const state = createInitialGame(Date.now(), preferredDifficulty, preferredPointValue);
+        state.mission ??= createCardMission(state.randomSeed);
+        setGame(state);
+        setStarted(false);
+      }, OPPONENT_WAIT_MS);
+      cancelReloadRef.current = () => {
+        window.clearTimeout(timer);
+        if (!done) releaseFreshReload();
+      };
+    };
     (async () => {
       if (parameters.get('multi') === '1') {
         const account = createSoloProfile(await loadSoloProfile());
@@ -281,7 +323,10 @@ export default function GamePage() {
       }
       if (soloModeRef.current) {
         const account = createSoloProfile(await loadSoloProfile());
+        account.opponentBalance = migrateOpponentEntry('hwatu.opponent-entry', account.opponentBalance);
         await saveSoloProfile(account);
+        if (cancelled) return;
+        if (reloadNewUser) { waitForNewUser(account); return; }
         setProfile(account);
         setComputerBalance(account.opponentBalance ?? SOLO_BALANCE);
         const local = await loadLocalGame(account.id);
@@ -314,6 +359,8 @@ export default function GamePage() {
       if (!account) {
         const solo = createSoloProfile(await loadSoloProfile());
         await saveSoloProfile(solo);
+        if (cancelled) return;
+        if (reloadNewUser) { waitForNewUser(solo); return; }
         setProfile(solo);
         setComputerBalance(solo.opponentBalance ?? SOLO_BALANCE);
         const state = createInitialGame(Date.now(), preferredDifficulty, preferredPointValue);
@@ -322,8 +369,11 @@ export default function GamePage() {
         setStarted(false);
         return;
       }
+      const loadedOpponentBalance = (account.opponentBalance ?? 0) > 0 && account.opponentBalance !== SOLO_BALANCE ? account.opponentBalance : randomOpponentBalance();
+      if (loadedOpponentBalance !== account.opponentBalance) account = { ...account, opponentBalance: loadedOpponentBalance };
+      if (cancelled) return;
+      if (reloadNewUser) { waitForNewUser(account); return; }
       setProfile(account);
-      const loadedOpponentBalance = Number.isFinite(account.opponentBalance) ? account.opponentBalance! : 500000;
       setComputerBalance(loadedOpponentBalance);
       const fresh = parameters.get('action') === 'new';
       if (fresh) { const state = createInitialGame(Date.now(), preferredDifficulty, preferredPointValue); setGame(state); setStarted(state.phase === 'round-ended'); navigate('/matgo/play', { replace: true }); await persist(state, account, auth); return; }
@@ -343,7 +393,9 @@ export default function GamePage() {
       savePointValue(pointValue);
       setGame(state); setStarted(shouldResumeSavedGame(state)); await persist(state, account, auth);
     })().catch(async () => {
+      if (cancelled) return;
       const solo = createSoloProfile(await loadSoloProfile().catch(() => null));
+      if (reloadNewUser) { waitForNewUser(solo); return; }
       setProfile(solo);
       setComputerBalance(solo.opponentBalance ?? SOLO_BALANCE);
       const state = createInitialGame(Date.now(), preferredDifficulty, preferredPointValue);
@@ -351,7 +403,14 @@ export default function GamePage() {
       setGame(state);
       setStarted(false);
     });
-    return () => { if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current); };
+    return () => {
+      cancelled = true;
+      initializedRef.current = false;
+      if (cancelReloadRef.current) cancelReloadRef.current();
+      else if (reloadNewUser) releaseFreshReload();
+      cancelReloadRef.current = null;
+      if (aiTimerRef.current !== null) window.clearTimeout(aiTimerRef.current);
+    };
   }, [location.search, navigate]);
 
   useEffect(() => {
@@ -568,10 +627,10 @@ export default function GamePage() {
   useEffect(() => {
     const humanBalance = moneyTransfer?.humanAfter ?? profile?.virtualBalance ?? 0;
     const waitingForRefill = !seatRef.current && humanBalance <= 0;
-    if (!started || busy || exitReserved || exitDialogOpen || waitingForRefill || game?.phase !== 'round-ended' || !showRoundResult) return;
+    if (!autoPlay || !started || busy || exitReserved || exitDialogOpen || waitingForRefill || game?.phase !== 'round-ended' || !showRoundResult) return;
     const timer = window.setTimeout(() => continueAfterRoundRef.current(), 2000);
     return () => window.clearTimeout(timer);
-  }, [busy, exitDialogOpen, exitReserved, game?.phase, moneyTransfer?.humanAfter, profile?.virtualBalance, showRoundResult, started]);
+  }, [autoPlay, busy, exitDialogOpen, exitReserved, game?.phase, moneyTransfer?.humanAfter, profile?.virtualBalance, showRoundResult, started]);
 
   const playHumanCard = async (cardId: string, source: HTMLButtonElement, playedMatchId?: string, autoChooseDraw = false, stateOverride?: GameState) => {
     if (seatRef.current === 'guest') {
@@ -840,6 +899,8 @@ export default function GamePage() {
   };
   const selectStartingPlayer = async (player: 'human' | 'computer') => {
     if (!game || !profile || busy || game.startingPlayerConfirmed !== false) return;
+    setOpponentLeft(false);
+    setSeatChangeNotice('');
     setBusy(true);
     try {
       await unlockAudio();
@@ -908,6 +969,22 @@ export default function GamePage() {
       multiplayer.sendAction({ kind: 'next', seed: Date.now() });
       return;
     }
+    if (!seatRef.current) {
+      const change = finishPlayerSeat();
+      if (change.leaving) {
+        const nextBalance = randomOpponentBalance();
+        const nextProfile = profile ? { ...profile, opponentBalance: nextBalance } : profile;
+        setSeatChangeNotice(`${change.leftName} 님이 나갔습니다. ${change.nextName} 님이 들어왔습니다.`);
+        setComputerBalance(nextBalance);
+        if (nextProfile) {
+          setProfile(nextProfile);
+          if (soloModeRef.current || nextProfile.id === SOLO_USER_ID) await saveSoloProfile(nextProfile);
+          else await saveProfile(nextProfile);
+        }
+        await createFreshRound(undefined, nextProfile ?? undefined);
+        return;
+      }
+    }
     await createFreshRound(game?.winner ?? game?.startingPlayer);
   };
   continueAfterRoundRef.current = () => { void continueAfterRound(); };
@@ -950,6 +1027,7 @@ export default function GamePage() {
   };
   const leaveNow = () => {
     if (!game || !profile) return;
+    setOpponentLeft(false);
     setExitDialogOpen(false);
     setExitReserved(false);
     setAutoPlay(false);
@@ -964,6 +1042,32 @@ export default function GamePage() {
     })();
   };
   returnToDealerRef.current = leaveNow;
+  const idleExitRef = useRef<() => void>(() => {});
+  idleExitRef.current = () => {
+    setOpponentLeft(true);
+    setNameEditorOpen(false);
+    setExitDialogOpen(false);
+    setExitReserved(false);
+    setAutoPlay(false);
+    void createFreshRound();
+  };
+  const idleKey = game ? manualIdleKey({
+    started,
+    autoPlay,
+    multiplayer: Boolean(seatRef.current),
+    dealing,
+    menuOpen: nameEditorOpen || exitDialogOpen,
+    phase: game.phase,
+    currentPlayer: game.currentPlayer,
+    pendingDecision: game.pendingDecision,
+    turnNumber: game.turnNumber,
+    choosing: Boolean(floorCardChoice || bombChoice || shakeChoice || gookjinChoiceOpen)
+  }) : '';
+  useEffect(() => {
+    if (!idleKey) return;
+    const timer = window.setTimeout(() => idleExitRef.current(), MANUAL_IDLE_MS);
+    return () => window.clearTimeout(timer);
+  }, [idleKey]);
 
   const toggleAutoPlay = () => {
     if (!started || !game) return;
@@ -1197,7 +1301,7 @@ export default function GamePage() {
           </div>
           <AudioControls compact settings={audioSettings} onChange={changeAudioSettings} />
         </div>
-        <GamePlayerPanel name={profile.displayName} balance={profile.virtualBalance} human active={game.currentPlayer === 'human'} first={game.startingPlayerConfirmed !== false && game.startingPlayer !== 'computer'} profileImageUrl={profile.profileImageUrl} onProfileImageChange={profileImage.upload} profileImageUploading={profileImage.uploading} />
+        <GamePlayerPanel name={profile.displayName} balance={profile.virtualBalance} human active={game.currentPlayer === 'human'} first={game.startingPlayerConfirmed !== false && game.startingPlayer !== 'computer'} profileImageUrl={profile.profileImageUrl} onProfileImageChange={profileImage.upload} profileImageUploading={profileImage.uploading} onNameClick={multiplayer.seat ? undefined : () => setNameEditorOpen(true)} />
       </aside>
 
       <div className="human-play-dock">
@@ -1226,8 +1330,10 @@ export default function GamePage() {
         </div>
       </div>
     </main>
-    {!started && game.startingPlayerConfirmed === false && game.phase !== 'round-ended' && multiplayer.seat === 'guest' ? <div className="starting-player-overlay"><section><h1>상대가 선을 고르고 있습니다</h1><p>방 코드 {multiplayer.code}</p></section></div> : !started && game.startingPlayerConfirmed === false && game.phase !== 'round-ended' ? <div className="starting-player-overlay"><section>
+    {opponentWait ? <div className="starting-player-overlay"><section><h1>상대방을 기다리고 있습니다</h1><p>새 사용자가 들어오면 패를 고릅니다.</p></section></div> : !started && game.startingPlayerConfirmed === false && game.phase !== 'round-ended' && multiplayer.seat === 'guest' ? <div className="starting-player-overlay"><section><h1>상대가 선을 고르고 있습니다</h1><p>방 코드 {multiplayer.code}</p></section></div> : !started && game.startingPlayerConfirmed === false && game.phase !== 'round-ended' ? <div className="starting-player-overlay"><section>
       <p className="eyebrow">새 판 · 선 정하기</p>
+      {opponentLeft && <p className="opponent-left-notice" role="alert">상대방이 나갔습니다.</p>}
+      {seatChangeNotice && <p className="opponent-left-notice" role="alert">{seatChangeNotice}</p>}
       <h1>바닥의 패를 고르세요</h1>
       <p>한 장을 뒤집으면 선공과 후공이 정해집니다.</p>
       <div className="dealer-selection-layout">
@@ -1248,8 +1354,17 @@ export default function GamePage() {
       <CustomerBoardLink />
       <button type="button" className="result-new-button refill-home-button" disabled={busy} onClick={() => void refillEmptyBalance()}>{REFILL_RECONNECT_MESSAGE}</button>
     </section></div>}
-    {started && game.phase === 'round-ended' && showRoundResult && <RoundResultOverlay game={game} opponentName={opponentName} exitReserved={exitReserved} moneyTransfer={moneyTransfer} balanceEmpty={balanceEmpty && !multiplayer.seat} disabled={busy} onContinue={() => void continueAfterRound()} onExit={leaveNow} onReturnHome={leaveNow} onRefill={() => void refillEmptyBalance()} />}
+    {started && game.phase === 'round-ended' && showRoundResult && <RoundResultOverlay game={game} opponentName={opponentName} exitReserved={exitReserved} moneyTransfer={moneyTransfer} balanceEmpty={balanceEmpty && !multiplayer.seat} autoPlay={autoPlay} disabled={busy} onContinue={() => void continueAfterRound()} onExit={leaveNow} onReturnHome={leaveNow} onRefill={() => void refillEmptyBalance()} />}
     {exitDialogOpen && <ExitChoiceDialog onReserve={reserveExit} onImmediate={leaveNow} onCancel={() => setExitDialogOpen(false)} guide="이번 판을 마친 뒤 돌아가거나, 지금 바닥의 패를 고르는 화면으로 돌아갈 수 있습니다." immediateDescription="바닥의 패를 고르는 화면으로 돌아갑니다" />}
     {declaration && <GameDeclarationOverlay key={declaration.id} effect={declaration} />}
+    {nameEditorOpen && <NameEditDialog name={profile.displayName} onClose={() => setNameEditorOpen(false)} onSave={name => {
+      setProfile(current => {
+        if (!current) return current;
+        const next = { ...current, displayName: name };
+        void (next.id === SOLO_USER_ID ? saveSoloProfile(next) : saveProfile(next));
+        return next;
+      });
+      setNameEditorOpen(false);
+    }} />}
   </div>;
 }
