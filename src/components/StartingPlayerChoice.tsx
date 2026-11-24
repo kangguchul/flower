@@ -9,12 +9,13 @@ interface StartingPlayerChoiceProps {
   disabled?: boolean;
   daytime?: boolean;
   autoPick?: boolean;
+  startAsHuman?: boolean;
   onSelect: (player: PlayerId) => void;
   onReveal?: (player: PlayerId) => void;
   onExit?: () => void;
 }
 
-export default function StartingPlayerChoice({ seed, disabled = false, daytime = new Date().getHours() >= 6 && new Date().getHours() < 18, autoPick = false, onSelect, onReveal, onExit }: StartingPlayerChoiceProps) {
+export default function StartingPlayerChoice({ seed, disabled = false, daytime = new Date().getHours() >= 6 && new Date().getHours() < 18, autoPick = false, startAsHuman = false, onSelect, onReveal, onExit }: StartingPlayerChoiceProps) {
   const cards = useMemo(() => createDealerSelectionCards(seed), [seed]);
   const [humanIndex, setHumanIndex] = useState<number | null>(null);
   const [computerIndex, setComputerIndex] = useState<number | null>(null);
@@ -22,18 +23,23 @@ export default function StartingPlayerChoice({ seed, disabled = false, daytime =
   const pickedRef = useRef(false);
   const winner = humanIndex === null || computerIndex === null ? null : determineDealerWinner(cards[humanIndex], cards[computerIndex], daytime);
 
-  const selectCard = (index: number) => {
+  const selectCard = (index: number, immediate = false) => {
     if (disabled || pickedRef.current || humanIndex !== null) return;
     pickedRef.current = true;
     const opponentIndex = chooseComputerDealerIndex(cards, index, seed);
-    const result = determineDealerWinner(cards[index], cards[opponentIndex], daytime);
+    const result = startAsHuman ? 'human' : determineDealerWinner(cards[index], cards[opponentIndex], daytime);
     setHumanIndex(index);
     setComputerIndex(opponentIndex);
     if (result) onReveal?.(result);
-    if (result) timerRef.current = window.setTimeout(() => onSelect(result), 1800);
+    if (!result) return;
+    if (immediate) onSelect(result);
+    else timerRef.current = window.setTimeout(() => onSelect(result), 1800);
   };
 
+  const seenSeedRef = useRef(seed);
   useEffect(() => {
+    if (seenSeedRef.current === seed) return;
+    seenSeedRef.current = seed;
     pickedRef.current = false;
   }, [seed]);
 
@@ -42,17 +48,21 @@ export default function StartingPlayerChoice({ seed, disabled = false, daytime =
   }, []);
 
   useEffect(() => {
-    if (!autoPick || disabled || humanIndex !== null) return;
-    const index = Math.abs(Math.trunc(seed)) % cards.length;
-    const timer = window.setTimeout(() => selectCard(index), 700);
-    return () => window.clearTimeout(timer);
-  }, [autoPick, cards.length, disabled, humanIndex, seed]);
+    if (!autoPick || disabled || humanIndex !== null || pickedRef.current) return;
+    if (startAsHuman) {
+      pickedRef.current = true;
+      onSelect('human');
+      return;
+    }
+    selectCard(Math.abs(Math.trunc(seed)) % cards.length, true);
+  }, [autoPick, cards.length, disabled, humanIndex, seed, startAsHuman]);
 
   const humanMonth = humanIndex === null ? null : getCard(cards[humanIndex])?.month;
   const computerMonth = computerIndex === null ? null : getCard(cards[computerIndex])?.month;
-  const resultText = winner === null
+  const shownWinner = startAsHuman && humanIndex !== null ? 'human' : winner;
+  const resultText = shownWinner === null
     ? `${daytime ? '낮장' : '밤일'} · ${daytime ? '높은 월' : '낮은 월'}이 선입니다`
-    : winner === 'human'
+    : shownWinner === 'human'
       ? `선입니다! 나는 ${humanMonth}월, 상대는 ${computerMonth}월입니다.`
       : `후입니다! 나는 ${humanMonth}월, 상대는 ${computerMonth}월입니다.`;
 

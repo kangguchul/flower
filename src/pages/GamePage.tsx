@@ -304,10 +304,15 @@ export default function GamePage() {
         void (soloModeRef.current || next.id === SOLO_USER_ID ? saveSoloProfile(next) : saveProfile(next));
         setOpponentWait(false);
         setSeatChangeNotice(change.leftName ? `${change.leftName} 님이 나갔습니다. ${change.nextName} 님이 들어왔습니다.` : `${change.nextName} 님이 들어왔습니다.`);
-        const state = createInitialGame(Date.now(), preferredDifficulty, preferredPointValue);
+        const opponentLeft = Boolean(change.leftName);
+        const state = createInitialGame(Date.now(), preferredDifficulty, preferredPointValue, autoPlay && opponentLeft ? 'human' : undefined);
         state.mission ??= createCardMission(state.randomSeed);
         setGame(state);
-        setStarted(false);
+        setStarted(Boolean(autoPlay && opponentLeft) || state.phase === 'round-ended');
+        if (autoPlay && opponentLeft) {
+          playStartSound();
+          showDealAnimation();
+        }
       }, OPPONENT_WAIT_MS);
       cancelReloadRef.current = () => {
         window.clearTimeout(timer);
@@ -897,8 +902,10 @@ export default function GamePage() {
     await unlockAudio(); playStartSound(); setStarted(true);
     if (!game?.turnNumber) showDealAnimation();
   };
+  const startingLockRef = useRef('');
   const selectStartingPlayer = async (player: 'human' | 'computer') => {
-    if (!game || !profile || busy || game.startingPlayerConfirmed !== false) return;
+    if (!game || !profile || busy || game.startingPlayerConfirmed !== false || startingLockRef.current === game.gameUuid) return;
+    startingLockRef.current = game.gameUuid;
     setOpponentLeft(false);
     setSeatChangeNotice('');
     setBusy(true);
@@ -981,7 +988,7 @@ export default function GamePage() {
           if (soloModeRef.current || nextProfile.id === SOLO_USER_ID) await saveSoloProfile(nextProfile);
           else await saveProfile(nextProfile);
         }
-        await createFreshRound(undefined, nextProfile ?? undefined);
+        await createFreshRound(autoPlay ? 'human' : undefined, nextProfile ?? undefined);
         return;
       }
     }
@@ -1338,7 +1345,7 @@ export default function GamePage() {
       <p>한 장을 뒤집으면 선공과 후공이 정해집니다.</p>
       <div className="dealer-selection-layout">
         <div className="dealer-point-value"><PointValueSelector value={pointValue} disabled={busy} onChange={value => void selectPointValue(value)} /></div>
-        <StartingPlayerChoice seed={game.randomSeed} disabled={busy} autoPick={autoPlay} onSelect={player => void selectStartingPlayer(player)} onReveal={player => playDealerResultSound(player === 'computer' ? opponentVoiceActor : 'player')} onExit={leaveNow} />
+        <StartingPlayerChoice seed={game.randomSeed} disabled={busy} autoPick={autoPlay} startAsHuman={seatChangeNotice.includes('나갔습니다')} onSelect={player => void selectStartingPlayer(player)} onReveal={player => playDealerResultSound(player === 'computer' ? opponentVoiceActor : 'player')} onExit={leaveNow} />
         <div className="dealer-difficulty"><DifficultySelector value={computerDifficulty} onChange={difficulty => void selectDifficulty(difficulty)} /></div>
       </div>
     </section></div> : !started && <div className="start-overlay"><div><span className="start-logo">가족화투</span><>
