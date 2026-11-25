@@ -8,6 +8,7 @@ import { handleBoardRequest } from './server/board.mjs';
 import { createLiveBoardStore } from './server/boardDb.mjs';
 import { createAccessRecorder } from './server/accessDb.mjs';
 import { createVisitStore, handleVisitPresence, handleVisitRequest, handleVisitStats } from './server/visits.mjs';
+import { handleBotCallback } from './server/botCallback.mjs';
 
 const accessSessions = [];
 const accessRecorder = createAccessRecorder();
@@ -31,14 +32,37 @@ const boardStore = createLiveBoardStore();
 function keepGameWhenDevSocketDrops() {
   return {
     name: 'hwatu-keep-game',
+    enforce: 'pre',
     transform(code, id) {
       const clean = id.split('?')[0].replaceAll('\\', '/');
       if (!clean.endsWith('/vite/dist/client/client.mjs')) return null;
-      const next = code.replace(
-        /await waitForSuccessfulPing\(url\.href\);\s*location\.reload\(\);/,
-        'await waitForSuccessfulPing(url.href);'
-      );
+      const next = code
+        .replace(
+          /await waitForSuccessfulPing\(url\.href\);\s*location\.reload\(\);/,
+          'await waitForSuccessfulPing(url.href);'
+        )
+        .replace(
+          'const socketHost = `${__HMR_HOSTNAME__ || importMetaUrl.hostname}:${hmrPort || importMetaUrl.port}${__HMR_BASE__}`;',
+          'const socketHost = `${__HMR_HOSTNAME__ || importMetaUrl.hostname}:${hmrPort || importMetaUrl.port || (socketProtocol === "wss" ? "443" : "80")}${__HMR_BASE__}`;'
+        );
       return next === code ? null : next;
+    }
+  };
+}
+
+function reloadStaticFiles() {
+  return {
+    name: 'hwatu-static-reload',
+    configureServer(server) {
+      const root = server.config.root.replaceAll('\\', '/');
+      const notify = (file) => {
+        const normalized = file.replaceAll('\\', '/');
+        if (normalized !== `${root}/index.html` && !normalized.startsWith(`${root}/public/`)) return;
+        server.ws.send({ type: 'full-reload' });
+      };
+      server.watcher.on('change', notify);
+      server.watcher.on('add', notify);
+      server.watcher.on('unlink', notify);
     }
   };
 }
@@ -51,6 +75,11 @@ function multiplayerPlugin() {
         const pathname = request.url?.split('?')[0] ?? '/';
         if (pathname !== '/' && pathname !== '') return next();
         handleBoardRequest(boardStore, request, response);
+      });
+      server.middlewares.use('/bot', (request, response, next) => {
+        const pathname = request.url?.split('?')[0] ?? '/';
+        if (request.method !== 'POST' || (pathname !== '/' && pathname !== '')) return next();
+        handleBotCallback(request, response);
       });
       server.middlewares.use('/visits', (request, response, next) => {
         const pathname = request.url?.split('?')[0] ?? '/';
@@ -97,15 +126,18 @@ function multiplayerPlugin() {
 }
 
 export default defineConfig({
-  plugins: [react(), keepGameWhenDevSocketDrops(), multiplayerPlugin()],
+  plugins: [react(), keepGameWhenDevSocketDrops(), reloadStaticFiles(), multiplayerPlugin()],
   server: {
     host: true,
     port: 5234,
     strictPort: true,
     allowedHosts: ['generaltopics.net', 'www.generaltopics.net'],
-    hmr: {
-      protocol: 'wss',
-      clientPort: 443
+    headers: {
+      'Cache-Control': 'no-store'
+    },
+    watch: {
+      usePolling: true,
+      interval: 200
     },
     proxy: {
       '/api': 'http://127.0.0.1:5233'

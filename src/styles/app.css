@@ -266,6 +266,10 @@ h2 { margin-bottom: 10px; font-size: 1.25rem; }
 .text-button.danger { color: #a12b28; }
 
 .credits-heading { align-items: center; }
+.guide-card + .guide-card { margin-top: 18px; }
+.guide-card p { margin-bottom: 16px; color: #74665d; line-height: 1.6; }
+.guide-steps { display: grid; gap: 12px; margin: 0; padding-left: 1.3em; color: #3d342e; line-height: 1.6; }
+.guide-steps li::marker { color: #8a3b22; font-weight: 900; }
 .credit-summary { display: grid; grid-template-columns: 1fr auto; gap: 20px 32px; }
 .credit-summary p { margin-bottom: 7px; color: #74665d; line-height: 1.55; }
 .credit-summary a:not(.primary-button):not(.secondary-button),

@@ -14,7 +14,7 @@ describe('게임 종료 선택창', () => {
     const header = html.slice(html.indexOf('<header'), html.indexOf('</header>'));
     const footer = html.slice(html.indexOf('<footer'), html.indexOf('</footer>'));
     expect(header).not.toContain('패 출처');
-    expect(footer).toContain('화투 패 출처 및 라이선스');
+    expect(footer).toContain('사용법');
     expect(footer).toContain('href="/credits"');
     expect(footer).toContain('개인정보 처리방침');
     expect(footer).toContain('href="/privacy"');

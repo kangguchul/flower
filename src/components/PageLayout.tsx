@@ -26,7 +26,7 @@ export default function PageLayout({ user, children, pageClassName = '', onLogin
     <main className="page-shell">{children}</main>
     <footer className="site-footer">
       <nav className="footer-links" aria-label="서비스 정책 및 라이선스">
-        <Link className="credit-link" to="/credits">화투 패 출처 및 라이선스</Link>
+        <Link className="credit-link" to="/credits">사용법</Link>
         <Link to="/access">접속 현황</Link>
         <Link to="/privacy">개인정보 처리방침</Link>
         <Link to="/license">MIT 라이선스</Link>

@@ -28,19 +28,21 @@ describe('서비스 정책과 라이선스 페이지', () => {
     expect(html).toContain('유지보수, 업데이트, 호환성');
     expect(html).toContain('오픈소스 의존성');
     expect(html).toContain('CC BY-SA 4.0');
-    expect(html).toContain('href="/credits"');
+    expect(html).toContain('제3자 라이선스 고지');
     expect(html).toContain('THIRD_PARTY_NOTICES.md');
+    const main = html.slice(html.indexOf('<main'), html.indexOf('</main>'));
+    expect(main).not.toContain('href="/credits"');
   });
 
-  it('화투 패 원저작자와 공개 라이선스 사운드를 구분한다', () => {
+  it('사용법과 고객센터 게시판으로 안내한다', () => {
     const html = renderToStaticMarkup(<MemoryRouter><CreditsPage /></MemoryRouter>);
-    expect(html).toContain('개별 SVG 제작·공개');
-    expect(html).not.toContain('개별 SVG 추출·최적화');
-    expect(html).toContain('런타임 합성음을 만들지 않습니다');
-    expect(html).toContain('Kenney Casino Audio');
-    expect(html).toContain('기기의 한국어 TTS는 사용하지 않습니다');
-    expect(html).toContain('국악 배경음악 #133');
-    expect(html).toContain('CC BY 4.0');
-    expect(html).toContain('/audio/ATTRIBUTION.txt');
+    const main = html.slice(html.indexOf('<main'), html.indexOf('</main>'));
+    expect(main).toContain('사용법');
+    expect(main).toContain('점당 금액');
+    expect(main).toContain('고 또는 스톱');
+    expect(main).toContain('고객센터 게시판');
+    expect(main).toContain('href="/board"');
+    expect(main).not.toContain('라이선스');
+    expect(main).not.toContain('CC BY');
   });
 });
